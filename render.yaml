@@ -1,4 +1,5 @@
-# Render Blueprint: creates a separate STAGING and PRODUCTION CRM, each with its own database and file disk.
+# Render Blueprint: creates the STAGING CRM (test environment) with its own database and file disk.
+# Production is a separate Blueprint (render.production.yaml) you add once staging is tested.
 # Render dashboard → New → Blueprint → pick this repository. You will be asked for the values marked sync:false.
 # Staging never delivers messages, calls or posts (they are stored as "test mode"), whatever its settings say.
 
@@ -36,39 +37,6 @@ services:
       - key: SITE_ORIGINS
         value: https://dssuniforms.com,https://www.dssuniforms.com
 
-  - type: web
-    name: dscrm-production
-    runtime: node
-    region: oregon
-    plan: 0.5c-512mb
-    buildCommand: npm ci && npm --prefix web ci && npm run build:web
-    startCommand: node server/src/index.js
-    healthCheckPath: /healthz
-    autoDeployTrigger: off            # production updates only when you click "Deploy"
-    disk:
-      name: dscrm-production-files
-      mountPath: /var/data
-      sizeGB: 5
-    envVars:
-      - key: APP_ENV
-        value: production
-      - key: DELIVERY_MODE
-        value: live
-      - key: NODE_VERSION
-        value: "22"
-      - key: UPLOADS_DIR
-        value: /var/data/uploads
-      - key: APP_ENCRYPTION_KEY
-        generateValue: true
-      - key: DATABASE_URL
-        fromDatabase: { name: dscrm-production-db, property: connectionString }
-      - key: PUBLIC_URL                # https://crm.dssuniforms.com
-        sync: false
-      - key: ANTHROPIC_API_KEY
-        sync: false
-      - key: SITE_ORIGINS
-        value: https://dssuniforms.com,https://www.dssuniforms.com
-
 databases:
   - name: dscrm-staging-db
     databaseName: dscrm
@@ -77,10 +45,3 @@ databases:
     region: oregon
     plan: 0.1c-256mb
     ipAllowList: []                    # reachable only from your Render services
-  - name: dscrm-production-db
-    databaseName: dscrm
-    user: dscrm_app
-    postgresMajorVersion: "16"
-    region: oregon
-    plan: 0.5c-1g
-    ipAllowList: []

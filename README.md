@@ -49,8 +49,9 @@ Roles: **Owner** (everything incl. marketing approval, AI switches, backups), **
 ## Install on Render (recommended — no server to manage)
 
 1. Put this code in a **private** GitHub repository.
-2. Render dashboard → **New → Blueprint** → choose the repository. `render.yaml` creates:
-   `dscrm-staging` and `dscrm-production` (web services, Oregon), each with its **own** database and file disk.
+2. Render dashboard → **New → Blueprint** → choose the repository. `render.yaml` creates **staging only**
+   (`dscrm-staging` + its own small database and file disk, Oregon). When staging is tested, add production as a
+   second Blueprint with **Blueprint Path** `render.production.yaml` (smallest database; upgrade later if needed).
    Enter `PUBLIC_URL` and `ANTHROPIC_API_KEY` when asked (you can add the AI key later).
 3. When staging is live, open its **Shell** tab and run:
    `node server/scripts/seed-test.js` (test data) — or for a real login: `node server/scripts/bootstrap.js --email you@… --name "Your Name"`.
