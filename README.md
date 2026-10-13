@@ -48,7 +48,7 @@ Roles: **Owner** (everything incl. marketing approval, AI switches, backups), **
 
 ## Install (production)
 
-You need a Linux server with Docker, a domain (e.g. `crm.dssunifoems.com`) pointing at it, and HTTPS in front (Caddy, Nginx, or your host's load balancer). Twilio and Meta must reach the server over HTTPS, and Twilio calls need WebSocket (`wss://`) through the same proxy.
+You need a Linux server with Docker, a domain (e.g. `crm.dssuniforms.com`) pointing at it, and HTTPS in front (Caddy, Nginx, or your host's load balancer). Twilio and Meta must reach the server over HTTPS, and Twilio calls need WebSocket (`wss://`) through the same proxy.
 
 ```bash
 cp deploy/production.env.example deploy/production.env   # fill it in
@@ -66,7 +66,7 @@ The last command prints your temporary password and the **website key**. Sign in
 A channel shows **Connected** only after the provider confirms the credentials, so you'll see exactly which ones still need work.
 
 1. **Twilio SMS/MMS + calls** — Account SID, Auth token, your Twilio number. In the Twilio console set the number's webhooks to the addresses shown at the bottom of Settings → Channels. For the browser phone also create an API key and a TwiML App (voice URL shown there). For US texting, finish **A2P 10DLC brand & campaign registration** in Twilio or carriers will block messages.
-2. **WhatsApp** — your WhatsApp sender in Twilio; same "message comes in" webhook. Marketing on WhatsApp needs approved templates (enter the template SID on the campaign).
+2. **WhatsApp** — the website's WhatsApp button uses +1 (747) 588-7117. To answer it inside the CRM, that number must be registered as a WhatsApp sender in Twilio (a number can't be in the WhatsApp Business app and the API at the same time); same "message comes in" webhook. Marketing on WhatsApp needs approved templates (enter the template SID on the campaign).
 3. **Messenger & Instagram** — a Meta developer app (Messenger + Instagram messaging), Page ID / Instagram account ID, a long-lived Page access token, app secret and a verify token you choose. Webhook URL: `https://<your-domain>/webhooks/meta`. Publishing posts needs `pages_manage_posts` / `instagram_content_publish` and Meta app review.
 4. **AI** — put `ANTHROPIC_API_KEY` in the env file and restart, then "Check connection".
 5. **Website (Shopify)** — Settings → Website shows a one-line script for `theme.liquid` (chat bubble) and a snippet for a Custom Liquid section (quote form). Both land in the CRM. Add your exact site address(es) to `SITE_ORIGINS`.
@@ -91,7 +91,7 @@ TEST_DATABASE_URL=postgres://dscrm:dscrm@localhost/dscrm_test npm test
 Tests use their own database and a scripted AI model and fake providers — they never place real calls, send real messages or publish anything.
 
 ## Known limits
-- **Check Natalie's quote link first.** It defaults to `https://dssunifoems.com/pages/contact` (Shopify's standard contact page). Set the real quote page in Settings → Business rules and press "Check links now" — it must show "Works".
+- Natalie's quote link is `https://dssuniforms.com/pages/get-a-quote` (checked: the page loads and has the quote form). The site has no separate contact page, so both links point there. After any site change, press "Check links now" in Settings → Business rules.
 - Campaign hours are owner-adjustable (default 09:00–17:00 Los Angeles, Mon–Fri); the recipient's local-hours check always applies on top.
 - Federal Do Not Call registry checks need a separate SAN subscription; this CRM keeps your own DNC list and per-customer consent.
 - Armenian voice: Twilio's speech providers have limited Armenian support. Test a live call before relying on it; text channels work in all four languages.

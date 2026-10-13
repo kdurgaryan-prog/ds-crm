@@ -69,11 +69,11 @@ test('business settings: validation keeps bad input out; changes are audited', a
 
 test('Natalie\'s quote links are checked for real and the result is shown', async () => {
   const fake = async url => ({ ok: !url.includes('broken'), status: url.includes('broken') ? 404 : 200 });
-  await owner.patch('/settings', { links: { quotePage: 'https://dssunifoems.com/pages/broken-quote', contactPage: 'https://dssunifoems.com/pages/contact' } });
+  await owner.patch('/settings', { links: { quotePage: 'https://dssuniforms.com/pages/broken-quote', contactPage: 'https://dssuniforms.com/pages/get-a-quote' } });
   const res = await withBiz(biz.id, c => checkLinks(c, biz.id, fake));
-  assert.equal(res['https://dssunifoems.com/pages/broken-quote'].ok, false);
+  assert.equal(res['https://dssuniforms.com/pages/broken-quote'].ok, false);
   const s = (await owner.get('/settings')).body.settings.links.checks;
-  assert.equal(s['https://dssunifoems.com/pages/contact'].status, 200);
+  assert.equal(s['https://dssuniforms.com/pages/get-a-quote'].status, 200);
 });
 
 test('team: add a person with a temporary password, change role, deactivate (signs them out)', async () => {

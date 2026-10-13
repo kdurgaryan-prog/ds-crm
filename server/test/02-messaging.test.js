@@ -159,13 +159,13 @@ test('Messenger webhook: signature checked, message routed to the right business
 
 test('website chat and quote form land in the same CRM; bots and other sites are refused', async () => {
   const key = biz.public_key;
-  const s = await (await publicFetch(`/api/public/${key}/chat/session`, { method: 'POST', headers: { origin: 'https://dssunifoems.com' } })).json();
+  const s = await (await publicFetch(`/api/public/${key}/chat/session`, { method: 'POST', headers: { origin: 'https://dssuniforms.com' } })).json();
   assert.match(s.greeting, /AI assistant/);
-  const m = await publicFetch(`/api/public/${key}/chat/messages`, { method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://dssunifoems.com' }, body: JSON.stringify({ visitorId: s.visitorId, token: s.token, text: 'Do you print on vests?' }) });
+  const m = await publicFetch(`/api/public/${key}/chat/messages`, { method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://dssuniforms.com' }, body: JSON.stringify({ visitorId: s.visitorId, token: s.token, text: 'Do you print on vests?' }) });
   assert.equal(m.status, 200);
   const forged = await publicFetch(`/api/public/${key}/chat/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ visitorId: s.visitorId, token: 'x'.repeat(20), text: 'hi' }) });
   assert.equal(forged.status, 403);
-  const form = await publicFetch(`/api/public/${key}/forms`, { method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://dssunifoems.com' }, body: JSON.stringify({ name: 'Rob', company: 'FastLane', phone: '(562) 555-0106', product_type: 'Hats', quantity: 100, decoration: 'Embroidery', form: 'quote' }) });
+  const form = await publicFetch(`/api/public/${key}/forms`, { method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://dssuniforms.com' }, body: JSON.stringify({ name: 'Rob', company: 'FastLane', phone: '(562) 555-0106', product_type: 'Hats', quantity: 100, decoration: 'Embroidery', form: 'quote' }) });
   assert.equal(form.status, 200);
   const bot = await publicFetch(`/api/public/${key}/forms`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Bot', phone: '(562) 555-0199', website: 'spam' }) });
   assert.equal(bot.status, 200);

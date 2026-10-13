@@ -20,7 +20,7 @@ export const config = {
   anthropicApiKey: env.ANTHROPIC_API_KEY || '',
   anthropicModel: env.ANTHROPIC_MODEL || 'claude-sonnet-5-5',
   uploadsDir: env.UPLOADS_DIR || './data/uploads',
-  allowedSiteOrigins: (env.SITE_ORIGINS || 'https://dssunifoems.com,https://www.dssunifoems.com').split(',').map(s => s.trim()).filter(Boolean),
+  allowedSiteOrigins: (env.SITE_ORIGINS || 'https://dssuniforms.com,https://www.dssuniforms.com').split(',').map(s => s.trim()).filter(Boolean),
   runWorkerInProcess: bool(env.RUN_WORKER_IN_PROCESS, true),
   trustProxy: bool(env.TRUST_PROXY, true),
 };

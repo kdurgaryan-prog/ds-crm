@@ -72,7 +72,7 @@ await withBiz(biz.id, async c => {
   await c.query(`insert into calls (business_id, contact_id, direction, from_number, to_number, status, handled_by, duration_sec, summary, outcome, next_action, created_at)
     values ($1,$2,'inbound',$3,'+12135550100','completed','ai',184,'Caller needs 60 hi-vis vests with logo for a new crew. Wants delivery in 2 weeks.','Qualified','Prepare quote', now() - interval '1 day'),
            ($1,$4,'inbound',$5,'+12135550100','missed','user',0,null,null,null, now() - interval '3 hours')`, [biz.id, made[0].id, made[0].phone_e164, made[4].id, made[4].phone_e164]);
-  await c.query(`insert into canned_replies (business_id, title, body) values ($1,'Quote link','You can request a written quote here: https://dssunifoems.com/pages/contact — we usually reply within one business day.'), ($1,'Minimum order','Our minimum is 20 pieces of the same item and color. Happy to help you plan an order that fits!')`, [biz.id]);
+  await c.query(`insert into canned_replies (business_id, title, body) values ($1,'Quote link','You can request a written quote here: https://dssuniforms.com/pages/get-a-quote — we usually reply within one business day.'), ($1,'Minimum order','Our minimum is 20 pieces of the same item and color. Happy to help you plan an order that fits!')`, [biz.id]);
   console.log(`Seeded test data. Logins (password "${PASS}"): owner@ / admin@ / sales@ / marketing@ / viewer@test.dssystems.local`);
 });
 console.log(`Website key: ${biz.public_key}`);

@@ -5,7 +5,7 @@ process.env.DATABASE_URL = process.env.TEST_DATABASE_URL || 'postgres://dscrm:ds
 process.env.APP_ENCRYPTION_KEY ||= crypto.randomBytes(32).toString('hex');
 process.env.PUBLIC_URL = 'http://crm.test';
 process.env.UPLOADS_DIR = '/tmp/dscrm-test-uploads';
-process.env.SITE_ORIGINS = 'https://dssunifoems.com';
+process.env.SITE_ORIGINS = 'https://dssuniforms.com';
 process.env.ANTHROPIC_API_KEY = '';
 
 const { pool, withSystem, withBiz } = await import('../src/db.js');

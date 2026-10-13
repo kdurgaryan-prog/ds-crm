@@ -1,11 +1,11 @@
 // Business settings with safe defaults. Agent display names and IDs live here (one central place).
 export const DEFAULT_SETTINGS = {
   timezone: 'America/Los_Angeles',
-  company: { legalName: 'DS Systems LLC', website: 'https://dssunifoems.com' },
+  company: { legalName: 'DS Systems LLC', website: 'https://dssuniforms.com' },
   links: {
     // Natalie never quotes prices; she points customers to these pages. Verified from Settings.
-    quotePage: 'https://dssunifoems.com/pages/contact',
-    contactPage: 'https://dssunifoems.com/pages/contact',
+    quotePage: 'https://dssuniforms.com/pages/get-a-quote',
+    contactPage: 'https://dssuniforms.com/pages/get-a-quote',
     checks: {},                       // { url: { ok, status, checkedAt } }
   },
   moq: { minQty: 20, rule: 'Same product type and color' },

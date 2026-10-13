@@ -73,7 +73,7 @@ test('a price slipped in by the model is replaced before sending and logged', as
   await inbound('+13235550104', 'how much are they??');
   await drainJobs();
   const out = await lastOut('+13235550104');
-  assert.doesNotMatch(out.body, /\$34/); assert.match(out.body, /dssunifoems\.com/);
+  assert.doesNotMatch(out.body, /\$34/); assert.match(out.body, /dssuniforms\.com/);
   const log = (await owner.get('/agents/actions?result=blocked')).body;
   assert.ok(log.some(x => x.action === 'reply_guard' && x.change.issues.includes('price')));
 });
