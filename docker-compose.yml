@@ -1,0 +1,51 @@
+# One stack per environment. Run staging and production as separate projects with separate env files:
+#   docker compose -p dscrm-staging --env-file deploy/staging.env up -d --build
+#   docker compose -p dscrm-prod    --env-file deploy/production.env up -d --build
+# Each project gets its own database volume, uploads and backups — nothing is shared.
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_ADMIN_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD:?set DB_ADMIN_PASSWORD}
+      POSTGRES_DB: dscrm
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/db-init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_ADMIN_USER:-postgres} -d dscrm"]
+      interval: 5s
+      retries: 20
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on: { db: { condition: service_healthy } }
+    env_file: ${ENV_FILE:-deploy/production.env}
+    environment:
+      DATABASE_URL: postgres://dscrm_app:${APP_DB_PASSWORD}@db:5432/dscrm
+      UPLOADS_DIR: /app/data/uploads
+    ports: ["${APP_PORT:-8080}:8080"]
+    volumes:
+      - uploads:/app/data/uploads
+
+  backup:
+    build: .
+    restart: unless-stopped
+    depends_on: { db: { condition: service_healthy } }
+    environment:
+      DATABASE_URL: postgres://dscrm_app:${APP_DB_PASSWORD}@db:5432/dscrm
+      BACKUP_ADMIN_URL: postgres://${DB_ADMIN_USER:-postgres}:${DB_ADMIN_PASSWORD}@db:5432/postgres
+      BACKUP_DIR: /app/data/backups
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - backups:/app/data/backups
+    # nightly at ~03:15 server time, with a restore test each run
+    entrypoint: ["/bin/sh", "-c", "while true; do now=$$(date +%H%M); if [ \"$$now\" = \"0315\" ]; then bash /app/scripts/backup.sh --verify; sleep 61; fi; sleep 30; done"]
+
+volumes:
+  pgdata:
+  uploads:
+  backups:
