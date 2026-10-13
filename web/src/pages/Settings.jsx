@@ -6,7 +6,7 @@ import { useSession, applyPrefs } from '../lib/session.jsx';
 import { dateTime, phone } from '../lib/format.js';
 
 const TABS = [['general', 'Business rules', 'settings.read'], ['channels', 'Channels', 'settings.read'], ['website', 'Website', 'settings.read'], ['team', 'Team & roles', 'users.manage'],
-  ['fields', 'Custom fields', 'settings.write'], ['look', 'My look', null], ['replies', 'Saved replies', 'settings.write'], ['dnc', 'Do Not Call', 'contacts.read'],
+  ['fields', 'Custom fields', 'settings.write'], ['look', 'My account', null], ['replies', 'Saved replies', 'settings.write'], ['dnc', 'Do Not Call', 'contacts.read'],
   ['failed', 'Failed actions', 'jobs.manage'], ['audit', 'Activity history', 'audit.read'], ['data', 'Backups & data', 'backup.manage']];
 
 export default function Settings() {
@@ -222,6 +222,29 @@ function Fields() {
 }
 
 const DEFAULT_LOOK = { fontFamily: 'atkinson', fontSize: 15, fontWeight: 400, accent: '#2E4A8B', textColor: null, density: 'comfortable', theme: 'auto' };
+function Password() {
+  const [f, setF] = useState({ current: '', next: '', again: '' });
+  const [err, setErr] = useState(null);
+  const [run, busy] = useAction();
+  const save = async e => {
+    e.preventDefault(); setErr(null);
+    if (f.next !== f.again) return setErr('The new passwords do not match.');
+    try { await run(() => post('/auth/password', { current: f.current, next: f.next }), 'Password changed. Other devices were signed out.'); setF({ current: '', next: '', again: '' }); }
+    catch (x) { setErr(x.fieldErrors?.().next || x.message); }
+  };
+  return (
+    <section className="panel"><h2>Password</h2>
+      <form onSubmit={save} className="grid2" autoComplete="on">
+        <Field label="Current password"><input className="in" type="password" autoComplete="current-password" required value={f.current} onChange={e => setF({ ...f, current: e.target.value })} /></Field>
+        <Field label="New password" hint="At least 10 characters."><input className="in" type="password" autoComplete="new-password" required minLength={10} value={f.next} onChange={e => setF({ ...f, next: e.target.value })} /></Field>
+        <Field label="New password again"><input className="in" type="password" autoComplete="new-password" required value={f.again} onChange={e => setF({ ...f, again: e.target.value })} /></Field>
+        <div style={{ alignSelf: 'end' }}><button className="btn primary" disabled={busy}>Change password</button></div>
+      </form>
+      {err && <div className="notice bad" style={{ marginTop: 10 }}>{err}</div>}
+    </section>
+  );
+}
+
 function Look() {
   const { me, setMe } = useSession();
   const saved = { ...DEFAULT_LOOK, ...(me.prefs || {}) };
@@ -229,6 +252,8 @@ function Look() {
   const [run, busy] = useAction();
   useEffect(() => () => applyPrefs(me.prefs), []); // leaving without saving restores the saved look  // eslint-disable-line
   return (
+    <div style={{ display: 'grid', gap: 14 }}>
+    <Password />
     <section className="panel"><h2>How the CRM looks for you</h2>
       <div className="grid2">
         <Field label="Font"><select className="in" value={p.fontFamily} onChange={e => setP({ ...p, fontFamily: e.target.value })}><option value="atkinson">Atkinson (easy to read)</option><option value="system">System</option><option value="serif">Serif</option><option value="mono">Monospace</option></select></Field>
@@ -246,6 +271,7 @@ function Look() {
       </div>
       <p className="small muted">Preview changes the screen right away; nothing is kept until you press Save. Table columns are arranged from the Columns button on each list.</p>
     </section>
+    </div>
   );
 }
 

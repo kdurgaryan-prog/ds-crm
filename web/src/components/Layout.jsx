@@ -116,7 +116,8 @@ export default function Layout() {
           <NavLink key={n.to} to={n.to} end={n.end}><Icon name={n.icon} /><span>{n.label}</span>{n.count && counts[n.count] > 0 && <span className="count">{counts[n.count]}</span>}</NavLink>
         ))}
         <div className="foot"><div><b>{me.user.name}</b></div><div className="muted">{me.user.role[0].toUpperCase() + me.user.role.slice(1)} · {me.business.name}</div>
-          <button className="btn small" style={{ marginTop: 8 }} onClick={async () => { await post('/auth/logout'); location.href = '/login'; }}>Sign out</button></div>
+          <div className="row" style={{ marginTop: 8 }}><NavLink className="btn small" style={{ margin: 0, padding: '4px 10px' }} to="/settings/look">My account</NavLink>
+          <button className="btn small" onClick={async () => { await post('/auth/logout'); location.href = '/login'; }}>Sign out</button></div></div>
       </nav>
       {menu && <div className="modal-bg" style={{ zIndex: 140 }} onClick={() => setMenu(false)} />}
       <div className="main">
