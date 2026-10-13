@@ -46,7 +46,28 @@ Roles: **Owner** (everything incl. marketing approval, AI switches, backups), **
 
 ---
 
-## Install (production)
+## Install on Render (recommended — no server to manage)
+
+1. Put this code in a **private** GitHub repository.
+2. Render dashboard → **New → Blueprint** → choose the repository. `render.yaml` creates:
+   `dscrm-staging` and `dscrm-production` (web services, Oregon), each with its **own** database and file disk.
+   Enter `PUBLIC_URL` and `ANTHROPIC_API_KEY` when asked (you can add the AI key later).
+3. When staging is live, open its **Shell** tab and run:
+   `node server/scripts/seed-test.js` (test data) — or for a real login: `node server/scripts/bootstrap.js --email you@… --name "Your Name"`.
+4. Add your domain: service → Settings → Custom Domains → `crm.dssuniforms.com` (and `staging-crm.dssuniforms.com`), then create the DNS record Render shows you (in Shopify: Settings → Domains → Manage → DNS).
+5. Test everything on staging (it never sends real messages), then run `bootstrap.js` on production and connect the real channels there.
+
+Notes: services must be on a paid instance (free ones sleep and miss calls). A service with a disk restarts briefly on each deploy, so deploy production outside business hours. Render backs up the managed database daily; the in-app "Back up now" button needs the `pg_dump` tool and may not be available on Render — use Render's database backups instead. The CRM refuses to start in production if its database user could bypass the per-business separation.
+
+## Connect the existing "Get a Quote" form on dssuniforms.com
+
+The theme's own script (`dss.js`) already copies each submission to the form's `data-webhook` address, while Shopify keeps emailing you as before. Set that address to:
+
+`https://<your CRM address>/api/public/<website key>/shopify-quote`
+
+(the website key is shown in Settings → Website). In Shopify: **Online Store → Themes → Customize → Get a Quote page** — if the quote section has a webhook field, paste it there. Otherwise **Edit code**, find the form with `data-dss-quote`, and add `data-webhook="…"` to it. Each request then appears in the CRM with products, print locations, quantity, decoration, date, budget, notes and ad source, plus a follow-up task.
+
+## Install with Docker (your own server)
 
 You need a Linux server with Docker, a domain (e.g. `crm.dssuniforms.com`) pointing at it, and HTTPS in front (Caddy, Nginx, or your host's load balancer). Twilio and Meta must reach the server over HTTPS, and Twilio calls need WebSocket (`wss://`) through the same proxy.
 

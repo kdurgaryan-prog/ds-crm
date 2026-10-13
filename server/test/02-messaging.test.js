@@ -201,3 +201,30 @@ test('regression: typing someone else\'s phone into website chat does not reveal
   const dupes = (await owner.get('/contacts/duplicates')).body;
   assert.ok(dupes.some(d => /Website chat visitor typed a phone/.test(d.reason)));
 });
+
+test('existing dssuniforms.com "Get a Quote" form: the theme webhook payload becomes a full lead', async () => {
+  // exactly what dss.js sends with navigator.sendBeacon (text/plain JSON, keys without "contact[...]")
+  const payload = {
+    form_type: 'contact', utf8: '✓', tags: 'quote', Form: 'Get a Quote', utm_source: 'google', utm_medium: 'cpc', utm_campaign: 'fall', utm_content: '',
+    name: 'Carlos Medina', Company: 'Medina Roofing', email: 'carlos@example.com', phone: '(818) 555-0144',
+    'Product: Polos': 'Yes', 'Product: Safety Vests': 'Yes', 'Location: Left chest': 'Yes', 'Location: Back': 'Yes',
+    Quantity: '45', Decoration: 'Not sure yet', 'Preferred date': '2026-11-20', Budget: '$10–$20', body: 'Logo is orange, need hi-vis', page: 'https://dssuniforms.com/pages/get-a-quote',
+  };
+  const r = await publicFetch(`/api/public/${biz.public_key}/shopify-quote`, { method: 'POST', headers: { 'content-type': 'text/plain;charset=UTF-8', origin: 'https://dssuniforms.com' }, body: JSON.stringify(payload) });
+  assert.equal(r.status, 204);
+  const lead = (await sales.get('/contacts?q=Medina')).body.rows[0];
+  assert.equal(lead.name, 'Carlos Medina'); assert.equal(lead.company, 'Medina Roofing'); assert.equal(lead.phone_e164, '+18185550144');
+  assert.equal(lead.product_type, 'Polos, Safety Vests'); assert.equal(lead.quantity, 45); assert.equal(lead.decoration, 'Not sure');
+  assert.equal(lead.deadline, '2026-11-20'); assert.equal(lead.source, 'website_quote'); assert.equal(lead.email, 'carlos@example.com');
+  const card = (await sales.get(`/contacts/${lead.id}`)).body;
+  const cv = card.conversations.find(c => c.channel === 'website_forms');
+  const msg = (await sales.get(`/inbox/${cv.id}`)).body.messages[0].body;
+  for (const part of ['Print locations: Left chest, Back', 'Budget per piece', 'Came from: google / cpc / fall', 'Notes: Logo is orange']) assert.match(msg, new RegExp(part.replace(/[/]/g, '\\/')));
+  assert.ok(card.tasks.some(t => /Respond to website quote request/.test(t.title)));
+  // the same person submitting again updates the same customer, no duplicate
+  await publicFetch(`/api/public/${biz.public_key}/shopify-quote`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ ...payload, Quantity: '60' }) });
+  assert.equal((await sales.get('/contacts?q=Medina')).body.total, 1);
+  // garbage is refused
+  assert.equal((await publicFetch(`/api/public/${biz.public_key}/shopify-quote`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: 'not json' })).status, 400);
+  assert.equal((await publicFetch(`/api/public/${biz.public_key}/shopify-quote`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ name: 'x', phone: '12' }) })).status, 400);
+});

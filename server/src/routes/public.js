@@ -107,15 +107,11 @@ const form = z.object({
   website: z.string().max(0).optional(), // honeypot: must stay empty
 });
 
-router.post('/:key/forms', async (req, res) => {
-  const businessId = await businessByKey(req.params.key);
-  if (!limit(`form:${req.ip}`, 8, 3600_000)) throw new AppError(429, 'Too many submissions. Please call us instead.');
-  const raw = typeof req.body === 'object' ? req.body : {};
-  if (raw.website) return res.json({ ok: true }); // bot: pretend OK, store nothing
-  const f = parse(form, raw);
+/** One website request → customer (new or existing by phone), Inbox thread, timeline entry and follow-up task. */
+async function ingestWebsiteRequest(businessId, f, { details = [], via = 'CRM form' } = {}) {
   const phone = normalizePhone(f.phone);
   if (!phone) throw new AppError(400, 'Please enter a valid phone number.', { details: [{ field: 'phone', message: 'Invalid phone number' }] });
-  const result = await withBiz(businessId, async c => {
+  return withBiz(businessId, async c => {
     const ctx = { businessId };
     const fields = { name: f.name, company: f.company || null, product_type: f.product_type || null, quantity: f.quantity ?? null, decoration: f.decoration || null, colors: f.colors || null, sizes: f.sizes || null, deadline: f.deadline || null };
     // email is stored only because the customer typed it into the quote form themselves
@@ -124,23 +120,76 @@ router.post('/:key/forms', async (req, res) => {
     if (r.existing) {
       const patch = Object.fromEntries(Object.entries(fields).filter(([k, v]) => v !== null && v !== '' && (contact[k] === null || contact[k] === '')));
       if (f.sms_consent && contact.sms_marketing !== 'opted_out') patch.sms_marketing = 'opted_in';
+      if (f.email && !contact.email) patch.email = f.email;
       if (Object.keys(patch).length) contact = await updateContact(c, ctx, contact.id, patch);
     }
-    const summary = `Website ${f.form} form: ${[f.product_type, f.quantity && `${f.quantity} pcs`, f.decoration, f.deadline && `by ${f.deadline}`].filter(Boolean).join(', ') || 'general inquiry'}${f.message ? ` — "${f.message.slice(0, 200)}"` : ''}`;
-    await activity(c, ctx, contact.id, 'message', summary, { data: { channel: 'website_forms', form: f } });
+    const head = [f.product_type, f.quantity && `${f.quantity} pcs`, f.decoration, f.deadline && `by ${f.deadline}`].filter(Boolean).join(', ') || 'general inquiry';
+    const summary = `Website ${f.form} request: ${head}${f.message ? ` — "${f.message.slice(0, 200)}"` : ''}`;
+    await activity(c, ctx, contact.id, 'message', summary, { data: { channel: 'website_forms', via, form: f, details } });
     // forms land in the Inbox too, as a thread the team can pick up (replies go out by SMS)
     const conv = (await c.query(`insert into conversations (business_id, contact_id, channel, external_thread_id, needs_reply, ai_enabled, last_inbound_at)
       values ($1,$2,'website_forms',$3,true,false, now()) on conflict (business_id, channel, external_thread_id) do update set needs_reply = true, status = 'open', last_message_at = now() returning id`,
       [businessId, contact.id, `form:${contact.id}`])).rows[0];
+    const body = [summary, ...details, f.email ? `Email: ${f.email}` : null, f.message ? `Notes: ${f.message}` : null].filter(Boolean).join('\n');
     await c.query(`insert into messages (business_id, conversation_id, contact_id, direction, channel, body, author_type, status) values ($1,$2,$3,'in','website_forms',$4,'customer','received')`,
-      [businessId, conv.id, contact.id, `${summary}${f.email ? `\nEmail: ${f.email}` : ''}`]);
+      [businessId, conv.id, contact.id, body]);
     await c.query(`insert into tasks (business_id, contact_id, title, kind, due_at) values ($1,$2,$3,'follow_up', now() + interval '2 hours')`,
       [businessId, contact.id, `Respond to website ${f.form} request`]);
     await c.query(`insert into channel_accounts (business_id, channel, status, last_checked_at) values ($1,'website_forms','connected',now())
                    on conflict (business_id, channel) do update set status = 'connected', last_error = null, last_checked_at = now()`, [businessId]);
     return { leadNo: contact.lead_no };
   });
+}
+
+router.post('/:key/forms', async (req, res) => {
+  const businessId = await businessByKey(req.params.key);
+  if (!limit(`form:${req.ip}`, 8, 3600_000)) throw new AppError(429, 'Too many submissions. Please call us instead.');
+  const raw = typeof req.body === 'object' ? req.body : {};
+  if (raw.website) return res.json({ ok: true }); // bot: pretend OK, store nothing
+  const f = parse(form, raw);
+  const result = await ingestWebsiteRequest(businessId, f);
   res.json({ ok: true, received: !!result.leadNo }); // no lead numbers exposed publicly
+});
+
+// ---------- the existing "Get a Quote" form on dssuniforms.com ----------
+// The theme script (dss.js) sends a copy of every submission to the form's data-webhook URL with
+// navigator.sendBeacon as text/plain JSON: keys are the Shopify field names without "contact[...]".
+// Shopify keeps emailing the store as before, so nothing is lost if the CRM is briefly unreachable.
+const DECOR = { 'DTF printing': 'DTF printing', Embroidery: 'Embroidery', 'Screen printing': 'Screen printing', 'Not sure yet': 'Not sure', 'Not sure': 'Not sure' };
+export function mapShopifyQuote(d) {
+  const str = v => (v === undefined || v === null ? '' : String(v)).trim();
+  const picked = prefix => Object.keys(d).filter(k => k.startsWith(prefix) && /^(yes|on|true)$/i.test(str(d[k]))).map(k => k.slice(prefix.length).trim());
+  const products = picked('Product:'); const locations = picked('Location:');
+  const qty = parseInt(str(d.Quantity).replace(/[^\d]/g, ''), 10);
+  const date = str(d['Preferred date']);
+  const details = [
+    products.length ? `Products: ${products.join(', ')}` : null,
+    locations.length ? `Print locations: ${locations.join(', ')}` : null,
+    str(d.Budget) ? `Budget per piece (customer's estimate): ${str(d.Budget)}` : null,
+    date ? 'Preferred date is not guaranteed (as stated on the form).' : null,
+    [d.utm_source, d.utm_medium, d.utm_campaign].some(v => str(v) && str(v) !== 'direct') ? `Came from: ${[d.utm_source, d.utm_medium, d.utm_campaign, d.utm_content].map(str).filter(Boolean).join(' / ')}` : null,
+  ].filter(Boolean);
+  return {
+    fields: {
+      name: str(d.name).slice(0, 120), company: str(d.Company).slice(0, 160) || undefined, email: str(d.email).slice(0, 200) || undefined,
+      phone: str(d.phone).slice(0, 40), product_type: products.join(', ').slice(0, 80) || undefined, quantity: Number.isFinite(qty) && qty > 0 ? Math.min(qty, 100000) : undefined,
+      decoration: DECOR[str(d.Decoration)] || undefined, deadline: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined,
+      message: str(d.body).slice(0, 4000) || undefined, form: 'quote',
+    },
+    details,
+  };
+}
+
+router.post('/:key/shopify-quote', express.text({ type: () => true, limit: '64kb' }), async (req, res) => {
+  const businessId = await businessByKey(req.params.key);
+  if (!limit(`sq:${req.ip}`, 10, 3600_000)) return res.status(429).end();
+  let data = req.body;
+  if (typeof data === 'string') { try { data = JSON.parse(data); } catch { return res.status(400).json({ error: 'Expected JSON' }); } }
+  if (!data || typeof data !== 'object') return res.status(400).json({ error: 'Expected JSON' });
+  const { fields, details } = mapShopifyQuote(data);
+  const f = parse(form, Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined)));
+  await ingestWebsiteRequest(businessId, f, { details, via: 'dssuniforms.com Get a Quote form' });
+  res.status(204).end(); // the browser sends this in the background; nothing is shown to the visitor
 });
 
 export default router;

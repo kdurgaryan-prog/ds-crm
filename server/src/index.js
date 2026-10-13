@@ -12,6 +12,14 @@ if (config.appEnv === 'production') {
 }
 
 await migrate({ log: m => console.log('[migrate]', m) });
+{
+  const { rows } = await pool.query('select rolsuper, rolbypassrls from pg_roles where rolname = current_user');
+  if (rows[0]?.rolsuper || rows[0]?.rolbypassrls) {
+    const msg = 'The database user is a superuser or can bypass row-level security, so businesses would not be kept apart. Connect with a normal database user (see README).';
+    if (config.appEnv === 'production' && process.env.ALLOW_PRIVILEGED_DB !== 'true') { console.error(`[ds-crm] ${msg}`); process.exit(1); }
+    console.warn(`[ds-crm] WARNING: ${msg}`);
+  }
+}
 const app = createApp();
 const server = http.createServer(app);
 attachRelay(server);

@@ -153,13 +153,19 @@ function Website() {
   const key = data.business.public_key;
   const tag = `<script src="${data.publicUrl}/widget.js" data-key="${key}" defer></script>`;
   const form = `<div id="ds-quote"></div>\n<script src="${data.publicUrl}/widget.js" data-key="${key}" data-quote-form="#ds-quote" data-chat="off" defer></script>`;
+  const hook = `${data.publicUrl}/api/public/${key}/shopify-quote`;
   return (
     <div style={{ display: 'grid', gap: 14 }}>
+      <section className="panel"><h2>Your existing "Get a Quote" form</h2>
+        <p>Your theme already sends a copy of each quote request to the address set as the form's <code>data-webhook</code>. Paste this address there (Shopify → Online Store → Themes → Customize → Get a Quote, or Edit code → the form with <code>data-dss-quote</code>):</p>
+        <pre className="code">{hook}</pre>
+        <button className="btn small" onClick={() => navigator.clipboard.writeText(hook)}>Copy</button>
+        <p className="small muted">Shopify keeps emailing you as before. In the CRM each request becomes a lead with products, print locations, budget and notes, plus a follow-up task.</p></section>
       <section className="panel"><h2>Website chat (Shopify)</h2>
         <p>Your site runs on Shopify. In Shopify admin open <b>Online Store → Themes → Edit code → theme.liquid</b> and paste this line just before <code>&lt;/body&gt;</code>:</p>
         <pre className="code">{tag}</pre>
         <button className="btn small" onClick={() => navigator.clipboard.writeText(tag)}>Copy</button></section>
-      <section className="panel"><h2>Quote request form</h2>
+      <section className="panel"><h2>Optional: CRM quote form</h2>
         <p>On the page where customers request quotes, add a <b>Custom Liquid</b> section and paste:</p>
         <pre className="code">{form}</pre>
         <button className="btn small" onClick={() => navigator.clipboard.writeText(form)}>Copy</button>
