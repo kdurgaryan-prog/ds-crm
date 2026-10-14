@@ -105,7 +105,7 @@ function WorkList({ id }) {
           <div style={{ fontSize: 24, fontWeight: 700, margin: '10px 0', letterSpacing: '.02em' }}>{phone(item.contact.phone_e164)}</div>
           <Field label="Text"><textarea className="in" rows={5} readOnly value={item.body} /></Field>
           <div className="row" style={{ marginTop: 12, flexWrap: 'wrap', gap: 8 }}>
-            <a className="btn primary" style={{ fontSize: 16, padding: '10px 16px' }} href={smsLink(item.contact.phone_e164, item.body)} onClick={() => { setOpened(true); setTimeout(() => sentBtn.current?.focus(), 50); }}>
+            <a className="btn primary" style={{ fontSize: 16, padding: '10px 16px' }} href={smsLink(item.contact.phone_e164, item.body)} onClick={() => { navigator.clipboard?.writeText(item.body).catch(() => {}); setOpened(true); setTimeout(() => sentBtn.current?.focus(), 50); }}>
               <Icon name="send" />Open in Messages</a>
             <button className="btn" onClick={() => copy(item.contact.phone_e164, 'Number')}>Copy number</button>
             <button className="btn" onClick={() => copy(item.body, 'Text')}>Copy text</button>
@@ -114,7 +114,7 @@ function WorkList({ id }) {
             <button ref={sentBtn} className={`btn ${opened ? 'primary' : ''}`} disabled={busy} onClick={markSent}><Icon name="check" />Sent — next <span className="small muted" style={{ marginLeft: 6 }}>Enter</span></button>
             <button className="btn" disabled={busy} onClick={() => setSkipOpen(true)}>Skip</button>
           </div>
-          <p className="small muted" style={{ marginBottom: 0 }}>Press <b>Sent</b> only after the text left your phone. On a computer, <b>Open in Messages</b> uses Phone Link (Windows) or Messages (Mac); on a phone, open this page in the phone's browser.</p>
+          <p className="small muted" style={{ marginBottom: 0 }}>Press <b>Sent</b> only after the text left your phone. On a computer, <b>Open in Messages</b> uses Phone Link (Windows) or Messages (Mac); on a phone, open this page in the phone's browser. The text is also copied — if it isn't filled in, press Ctrl+V in the message box.</p>
         </section>
       )}
       {skipOpen && <Modal title="Skip this person" onClose={() => setSkipOpen(false)} footer={<button className="btn" onClick={() => setSkipOpen(false)}>Cancel</button>}>
