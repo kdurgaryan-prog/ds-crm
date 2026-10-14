@@ -103,7 +103,7 @@ const form = z.object({
   product_type: z.string().max(80).optional(), quantity: z.coerce.number().int().min(1).max(100000).optional(),
   decoration: z.string().max(40).optional(), colors: z.string().max(200).optional(), sizes: z.string().max(200).optional(),
   deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal('')), message: z.string().max(4000).optional(),
-  sms_consent: z.coerce.boolean().optional(), form: z.enum(['quote', 'contact']).default('quote'),
+  sms_consent: z.preprocess(v => (typeof v === 'string' ? /^(true|yes|on|1)$/i.test(v) : v), z.boolean()).optional(), form: z.enum(['quote', 'contact']).default('quote'),
   website: z.string().max(0).optional(), // honeypot: must stay empty
 });
 
@@ -122,6 +122,13 @@ async function ingestWebsiteRequest(businessId, f, { details = [], via = 'CRM fo
       if (f.sms_consent && contact.sms_marketing !== 'opted_out') patch.sms_marketing = 'opted_in';
       if (f.email && !contact.email) patch.email = f.email;
       if (Object.keys(patch).length) contact = await updateContact(c, ctx, contact.id, patch);
+    }
+    if (f.sms_consent && contact.sms_marketing !== 'opted_out') {
+      const { recordSmsConsent, sendIntroSms } = await import('../services/intro.js');
+      await recordSmsConsent(c, ctx, contact, `website ${f.form} form checkbox (${via})`);
+      const s = (await c.query('select settings from businesses where id = $1', [businessId])).rows[0];
+      const { mergeSettings } = await import('../services/settings.js');
+      if (mergeSettings(s.settings).sms.autoTextWebLeads) await sendIntroSms(c, ctx, contact, { reason: 'website' });
     }
     const head = [f.product_type, f.quantity && `${f.quantity} pcs`, f.decoration, f.deadline && `by ${f.deadline}`].filter(Boolean).join(', ') || 'general inquiry';
     const summary = `Website ${f.form} request: ${head}${f.message ? ` — "${f.message.slice(0, 200)}"` : ''}`;
@@ -175,6 +182,7 @@ export function mapShopifyQuote(d) {
       phone: str(d.phone).slice(0, 40), product_type: products.join(', ').slice(0, 80) || undefined, quantity: Number.isFinite(qty) && qty > 0 ? Math.min(qty, 100000) : undefined,
       decoration: DECOR[str(d.Decoration)] || undefined, deadline: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined,
       message: str(d.body).slice(0, 4000) || undefined, form: 'quote',
+      sms_consent: Object.keys(d).some(k => /sms/i.test(k) && /consent|agree|opt/i.test(k) && /^(yes|on|true)$/i.test(str(d[k]))) || undefined,
     },
     details,
   };

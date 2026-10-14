@@ -43,6 +43,7 @@ export default function CustomerCard() {
         {msgThread ? <Link className="btn primary" to={`/inbox/${msgThread.id}`}><Icon name="send" />Message</Link>
           : c.phone_e164 && can('inbox.reply') && <button className="btn primary" onClick={startSms}><Icon name="send" />Text</button>}
         {c.phone_e164 && can('calls.make') && <button className="btn" disabled={blockedCall} title={blockedCall ? 'On the Do Not Call list' : ''} onClick={() => sp.open(c.phone_e164)}><Icon name="phone" />{blockedCall ? 'Do not call' : 'Call'}</button>}
+        {c.phone_e164 && c.sms_marketing === 'opted_in' && !c.opted_out_at && can('inbox.reply') && <button className="btn" onClick={() => run(() => post(`/contacts/${c.id}/intro-sms`), 'Intro text queued').then(r => nav(`/inbox/${r.conversationId}`)).catch(() => {})}><Icon name="send" />Send intro text</button>}
         {can('tasks.write') && <button className="btn" onClick={() => setTaskOpen(true)}><Icon name="task" />Add task</button>}
         {can('quotes.write') && <button className="btn" onClick={() => run(() => post('/quotes', { contactId: c.id }), q => `Quote Q-${q.quote_no} started`).then(q => nav(`/quotes/${q.id}`))}><Icon name="quote" />New quote</button>}
         {can('quotes.write') && <button className="btn" onClick={() => run(() => post('/quotes/ai-draft', { contactId: c.id }), q => `Draft Q-${q.quote_no} prepared from the price list — review it`).then(q => nav(`/quotes/${q.id}`)).catch(() => {})}><Icon name="spark" />Draft quote from price list</button>}
@@ -106,6 +107,7 @@ function Permissions({ c, save, canEdit }) {
       {(c.dnc || c.dnc_listed) && <div className="notice bad" style={{ marginBottom: 8 }}>On the Do Not Call list — calls and marketing are blocked.</div>}
       {c.opted_out_at && <div className="notice bad" style={{ marginBottom: 8 }}>Opted out {c.opt_out_channel ? `by ${CHANNEL[c.opt_out_channel] || c.opt_out_channel} ` : ''}on {dateShort(c.opted_out_at)}. Texts are blocked until they reply START.</div>}
       <div style={{ display: 'grid', gap: 10 }}>
+        {c.sms_consent_at && <div className="small muted">Agreed to texts {dateShort(c.sms_consent_at)} — {c.sms_consent_source}</div>}
         <Field label="Marketing texts"><select className="in" disabled={!canEdit} value={c.sms_marketing} onChange={e => save({ sms_marketing: e.target.value })}>
           <option value="unknown">No consent on file</option><option value="opted_in">Agreed to marketing texts</option><option value="opted_out">Said no</option></select></Field>
         <Field label="Marketing calls" hint="AI calls need written consent on file."><select className="in" disabled={!canEdit} value={c.call_marketing} onChange={e => save({ call_marketing: e.target.value })}>

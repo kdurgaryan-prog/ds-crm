@@ -39,12 +39,16 @@ r.patch('/', requirePerm('settings.write'), async (req, res) => {
       postCallSms: z.object({ enabled: z.boolean(), text: z.string().max(320) }) }).partial().optional(),
     quotes: z.object({ defaultTaxRate: z.coerce.number().min(0).max(0.5), validDays: z.coerce.number().int().min(1).max(180) }).partial().optional(),
     company: z.object({ legalName: z.string().max(120), website: z.string().url() }).partial().optional(),
+    sms: z.object({ introText: z.string().min(10).max(1000).refine(t => /stop/i.test(t), 'The text must tell people how to opt out (for example "Reply STOP to opt out").'),
+      keywords: z.array(z.string().regex(/^[A-Za-z0-9]{2,20}$/, 'Keywords are one word, letters and numbers only')).max(10), keywordOptIn: z.boolean(), autoTextWebLeads: z.boolean(),
+      helpText: z.string().min(10).max(320) }).partial().optional(),
   }).strict(), req.body);
   if (b.calls?.handoffNumber) {
     const n = normalizePhone(b.calls.handoffNumber);
     if (!n) throw badRequest('The handoff phone number is not valid.');
     b.calls.handoffNumber = n;
   }
+  if (b.sms?.keywords) b.sms.keywords = [...new Set(b.sms.keywords.map(k => k.toUpperCase()))].filter(k => !['STOP', 'START', 'HELP', 'UNSTOP', 'CANCEL', 'END', 'QUIT', 'UNSUBSCRIBE', 'YES', 'INFO'].includes(k));
   if (b.campaignHours && b.campaignHours.start && b.campaignHours.end && b.campaignHours.start >= b.campaignHours.end) throw badRequest('Start time must be before end time.');
   const out = await withBiz(req.ctx.businessId, async c => {
     const before = await getSettings(c, req.ctx.businessId);

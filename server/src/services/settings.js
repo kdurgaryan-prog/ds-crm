@@ -28,6 +28,14 @@ export const DEFAULT_SETTINGS = {
     },
   },
   quotes: { defaultTaxRate: 0.095, validDays: 14 },
+  sms: {
+    // Natalie's first text to people who agreed to receive texts. {first_name} and {company} are filled in.
+    introText: "Hi, I represent DS Systems, and I offer custom uniforms for your company. We look forward to hearing from you. Hi, I'm Natalie, ai agent.\nYour team's uniforms should reflect your company's identity.\n\nFor more information, please call\n(747) 588-7117\nor visit\n\nhttps://dssuniforms.com/pages/get-a-quote.\n\nReply STOP to opt out.",
+    keywords: ['UNIFORM'],           // texting one of these = agreeing to receive texts
+    keywordOptIn: true,
+    autoTextWebLeads: true,          // website requests with the SMS checkbox get the intro text right away
+    helpText: 'DS Systems: custom uniforms and workwear. Call (747) 588-7117 or visit dssuniforms.com. Reply STOP to opt out.',
+  },
 };
 
 export function mergeSettings(stored) {

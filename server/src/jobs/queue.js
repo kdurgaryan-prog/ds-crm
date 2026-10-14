@@ -6,8 +6,8 @@ export class PermanentError extends Error { constructor(m) { super(m); this.retr
 /** Enqueue a job inside the caller's transaction. Same idempotency key → no second job. */
 export async function enqueue(c, businessId, kind, payload = {}, { key = null, runAt = null, maxAttempts = 5 } = {}) {
   const { rows } = await c.query(
-    `insert into jobs (business_id, kind, payload, idempotency_key, run_at, max_attempts)
-     values ($1,$2,$3,$4, coalesce($5, now()), $6)
+    `insert into jobs (business_id, kind, payload, idempotency_key, run_at, max_attempts, created_at)
+     values ($1,$2,$3,$4, coalesce($5, now()), $6, clock_timestamp())
      on conflict (business_id, idempotency_key) do nothing returning id`,
     [businessId, kind, payload, key, runAt, maxAttempts]);
   return rows[0]?.id || null;
@@ -35,8 +35,10 @@ export async function runDueJobs({ limit = 10 } = {}) {
   });
   const jobs = await withSystem(async c => (await c.query(
     `update jobs set status = 'running', locked_at = now(), attempts = attempts + 1, updated_at = now()
-      where id in (select id from jobs where status = 'pending' and run_at <= now() order by run_at limit $1 for update skip locked)
+      where id in (select id from jobs where status = 'pending' and run_at <= now() order by run_at, created_at limit $1 for update skip locked)
       returning *`, [limit])).rows);
+  // UPDATE … RETURNING has no guaranteed order: run in the order the work was scheduled
+  jobs.sort((a, b) => (a.run_at - b.run_at) || (a.created_at - b.created_at));
   for (const job of jobs) {
     const fn = handlers.get(job.kind);
     try {

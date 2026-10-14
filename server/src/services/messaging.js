@@ -67,8 +67,23 @@ export async function handleInbound(c, ctx, { channel, thread, phone = null, nam
     return { message: msg, conversation: conv, contact, keyword };
   }
 
-  // Natalie answers if enabled for the business and this conversation (and a staff member has not taken it over).
   const s = await getSettings(c, ctx.businessId);
+  // HELP: the carrier-required help reply
+  if (channel === 'sms' && keyword === 'help') {
+    await queueOutbound(c, ctx, { conversation: conv, body: s.sms.helpText, authorType: 'system', purpose: 'transactional', key: `help:${msg.id}`, bypassOptOut: true });
+    return { message: msg, conversation: conv, contact, keyword };
+  }
+  // Keyword opt-in (e.g. "UNIFORM" from an ad or flyer): the person asked for texts — record it, confirm, send the intro
+  const word = String(body || '').trim().replace(/[^\p{L}\p{N}]+/gu, '').toUpperCase();
+  if (channel === 'sms' && s.sms.keywordOptIn && word && (s.sms.keywords || []).map(k => String(k).toUpperCase()).includes(word)) {
+    const { recordSmsConsent, sendIntroSms, SMS_CONFIRMATION } = await import('./intro.js');
+    await recordSmsConsent(c, ctx, contact, `texted keyword "${word}"`);
+    await queueOutbound(c, ctx, { conversation: conv, body: SMS_CONFIRMATION, authorType: 'system', purpose: 'transactional', key: `optin-confirm:${msg.id}`, bypassOptOut: true });
+    await sendIntroSms(c, ctx, { ...contact, phone_e164: contact.phone_e164 || phone }, { reason: `keyword:${msg.id}`, delayMs: 3000 }); // after the confirmation
+    return { message: msg, conversation: conv, contact, keyword: 'keyword_opt_in' };
+  }
+
+  // Natalie answers if enabled for the business and this conversation (and a staff member has not taken it over).
   const n = s.agents.natalie;
   if (n.enabled && n.autoReplyMessages && conv.ai_enabled && !contact.opted_out_at) {
     await enqueue(c, ctx.businessId, 'natalie.reply', { conversationId: conv.id, messageId: msg.id },
@@ -81,7 +96,7 @@ export async function handleInbound(c, ctx, { channel, thread, phone = null, nam
  * Queue an outbound message. Compliance is checked here; a blocked message is stored as "blocked" with the reason
  * (never shown as sent). The same idempotency key never creates a second message.
  */
-export async function queueOutbound(c, ctx, { conversation, body, media = [], authorType = 'user', purpose = 'conversational', key = null, template = null, bypassOptOut = false }) {
+export async function queueOutbound(c, ctx, { conversation, body, media = [], authorType = 'user', purpose = 'conversational', key = null, template = null, bypassOptOut = false, delayMs = 0 }) {
   if (!body?.trim() && !media.length && !template) throw badRequest('Write a message or attach a file.');
   const contact = await getContact(c, conversation.contact_id);
   const s = await getSettings(c, ctx.businessId);
@@ -106,7 +121,7 @@ export async function queueOutbound(c, ctx, { conversation, body, media = [], au
     [ctx.businessId, conversation.id, contact.id, conversation.channel, body || null, JSON.stringify(media), authorType, authorType === 'user' ? ctx.userId : null,
       blocked ? 'blocked' : 'queued', blocked, idem, purpose])).rows[0];
   if (!blocked) {
-    await enqueue(c, ctx.businessId, 'message.send', { messageId: msg.id, tag, template }, { key: `send:${msg.id}`, maxAttempts: 5 });
+    await enqueue(c, ctx.businessId, 'message.send', { messageId: msg.id, tag, template }, { key: `send:${msg.id}`, maxAttempts: 5, runAt: delayMs ? new Date(Date.now() + delayMs) : null });
     await c.query(`update conversations set last_message_at = now(), needs_reply = false, unread = 0 where id = $1`, [conversation.id]);
   }
   const who = authorType === 'ai' ? s.agents.natalie.displayName : authorType === 'system' ? 'System' : 'Staff';

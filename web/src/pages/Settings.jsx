@@ -36,7 +36,8 @@ function General() {
   const save = () => run(() => patch('/settings', { links: { quotePage: f.links.quotePage, contactPage: f.links.contactPage }, moq: { minQty: Number(f.moq.minQty) },
     campaignHours: { start: f.campaignHours.start, end: f.campaignHours.end, timezone: f.campaignHours.timezone, days: f.campaignHours.days },
     calls: { recordCalls: f.calls.recordCalls, recordingDisclosure: f.calls.recordingDisclosure, handoffNumber: f.calls.handoffNumber, ringTimeoutSec: Number(f.calls.ringTimeoutSec), postCallSms: f.calls.postCallSms || { enabled: false, text: '' } },
-    quotes: { defaultTaxRate: Number(f.quotes.defaultTaxRate), validDays: Number(f.quotes.validDays) } }), 'Settings saved').then(reload);
+    quotes: { defaultTaxRate: Number(f.quotes.defaultTaxRate), validDays: Number(f.quotes.validDays) },
+    sms: { introText: f.sms.introText, keywords: String(f.sms.keywordsText ?? f.sms.keywords.join(', ')).split(/[,\s]+/).filter(Boolean), keywordOptIn: f.sms.keywordOptIn, autoTextWebLeads: f.sms.autoTextWebLeads, helpText: f.sms.helpText } }), 'Settings saved').then(reload);
   const check = data.settings.links.checks || {};
   const linkState = url => { const c = check[url]; if (!c) return <Pill>Not checked yet</Pill>; return c.ok ? <Pill tone="green">Works ({c.status})</Pill> : <Pill tone="red">Not working: {c.status || c.error}</Pill>; };
   const set = (path, v) => { const n = structuredClone(f); const ks = path.split('.'); let o = n; for (const k of ks.slice(0, -1)) o = o[k] ||= {}; o[ks.at(-1)] = v; setF(n); };
@@ -51,6 +52,7 @@ function General() {
         <div className="row" style={{ marginTop: 8 }}>{linkState(data.settings.links.quotePage)} {linkState(data.settings.links.contactPage)}
           {w && <button className="btn small" disabled={busy} onClick={() => run(() => post('/settings/links/check'), 'Links checked').then(reload)}>Check links now</button>}</div>
       </section>
+      <SmsSection f={f} set={set} w={w} />
       <section className="panel"><h2>Orders</h2>
         <div className="grid2">
           <Field label="Minimum order (pieces of the same item and color)"><input className="in" type="number" min="1" disabled={!w} value={f.moq.minQty} onChange={e => set('moq.minQty', e.target.value)} /></Field>
@@ -82,6 +84,38 @@ function General() {
       </section>
       {w && <div className="row"><button className="btn primary" disabled={busy} onClick={save}>Save settings</button><button className="btn" onClick={() => setF(structuredClone(data.settings))}>Undo changes</button></div>}
     </div>
+  );
+}
+
+// SMS are billed per segment: 160 characters (153 when split), or 70 (67) if any character is outside the GSM alphabet.
+const GSM = /^[@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !"#¤%&'()*+,\-./0-9:;<=>?¡A-ZÄÖÑÜ§¿a-zäöñüà^{}\\\[~\]|€]*$/;
+export function smsSegments(t) {
+  const gsm = GSM.test(t); const len = [...t].length + (gsm ? (t.match(/[\^{}\\\[~\]|€]/g) || []).length : 0);
+  const one = gsm ? 160 : 70; const multi = gsm ? 153 : 67;
+  return { len, gsm, segments: len <= one ? 1 : Math.ceil(len / multi) };
+}
+
+function SmsSection({ f, set, w }) {
+  const seg = smsSegments(f.sms.introText || '');
+  return (
+    <section className="panel"><h2>Natalie's intro text</h2>
+      <p className="muted" style={{ marginTop: -6 }}>Sent only to people who agreed to receive texts: they texted your keyword, ticked the SMS box on the website form, or you recorded their agreement on their card. {'{first_name}'} and {'{company}'} are filled in.</p>
+      <Field label="Text"><textarea className="in" rows={8} disabled={!w} value={f.sms.introText} onChange={e => set('sms.introText', e.target.value)} /></Field>
+      <div className="row small" style={{ marginTop: 6 }}>
+        <span>{seg.len} characters = <b>{seg.segments} SMS segment{seg.segments > 1 ? 's' : ''}</b> per message</span>
+        {seg.segments > 2 && <Pill tone="amber">Each send is billed {seg.segments}×. Shorter text costs less.</Pill>}
+        {!seg.gsm && <Pill tone="amber">Contains special characters (e.g. curly quotes or emoji), which make segments shorter</Pill>}
+        {!/stop/i.test(f.sms.introText || '') && <Pill tone="red">Must include "Reply STOP to opt out"</Pill>}
+      </div>
+      <div className="grid2" style={{ marginTop: 12 }}>
+        <Field label="Keywords people can text to sign up" hint="One word each, separated by commas. Put it on ads and flyers: Text UNIFORM to (747) 588-7117."><input className="in" disabled={!w} value={f.sms.keywordsText ?? f.sms.keywords.join(', ')} onChange={e => set('sms.keywordsText', e.target.value)} /></Field>
+        <Field label="Reply to HELP"><input className="in" disabled={!w} value={f.sms.helpText} onChange={e => set('sms.helpText', e.target.value)} /></Field>
+      </div>
+      <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
+        <Switch disabled={!w} checked={f.sms.keywordOptIn} onChange={v => set('sms.keywordOptIn', v)} label="Texting a keyword signs the person up and sends the intro text" />
+        <Switch disabled={!w} checked={f.sms.autoTextWebLeads} onChange={v => set('sms.autoTextWebLeads', v)} label="Website requests with the SMS box ticked get the intro text right away" />
+      </div>
+    </section>
   );
 }
 
@@ -147,6 +181,11 @@ function ChannelForm({ ch, onDone }) {
   );
 }
 
+const SMS_BOX = `<label style="display:flex;gap:8px;align-items:flex-start;margin:12px 0">
+  <input type="checkbox" name="contact[SMS consent]" value="Yes">
+  <span>I agree to receive text messages from DS Systems about my request and offers. Msg &amp; data rates may apply. Msg frequency varies. Reply STOP to opt out, HELP for help.</span>
+</label>`;
+
 function Website() {
   const { data } = useLoad(() => get('/settings'), []);
   if (!data) return <div className="empty">Loading…</div>;
@@ -160,7 +199,11 @@ function Website() {
         <p>Your theme already sends a copy of each quote request to the address set as the form's <code>data-webhook</code>. Paste this address there (Shopify → Online Store → Themes → Customize → Get a Quote, or Edit code → the form with <code>data-dss-quote</code>):</p>
         <pre className="code">{hook}</pre>
         <button className="btn small" onClick={() => navigator.clipboard.writeText(hook)}>Copy</button>
-        <p className="small muted">Shopify keeps emailing you as before. In the CRM each request becomes a lead with products, print locations, budget and notes, plus a follow-up task.</p></section>
+        <p className="small muted">Shopify keeps emailing you as before. In the CRM each request becomes a lead with products, print locations, budget and notes, plus a follow-up task.</p>
+        <h3 style={{ margin: '14px 0 6px' }}>Add the SMS agreement box to that form</h3>
+        <p className="small">Paste this inside the form, just above the submit button. Leave it unticked by default — people must tick it themselves.</p>
+        <pre className="code">{SMS_BOX}</pre>
+        <button className="btn small" onClick={() => navigator.clipboard.writeText(SMS_BOX)}>Copy</button></section>
       <section className="panel"><h2>Website chat (Shopify)</h2>
         <p>Your site runs on Shopify. In Shopify admin open <b>Online Store → Themes → Edit code → theme.liquid</b> and paste this line just before <code>&lt;/body&gt;</code>:</p>
         <pre className="code">{tag}</pre>

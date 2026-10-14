@@ -204,7 +204,14 @@ r.get('/:id', requirePerm('contacts.read'), async (req, res) => {
 
 r.patch('/:id', requirePerm('contacts.write'), async (req, res) => {
   const b = parse(contactInput.partial(), req.body);
-  const out = await withBiz(req.ctx.businessId, c => updateContact(c, req.ctx, req.params.id, b));
+  const out = await withBiz(req.ctx.businessId, async c => {
+    const before = await getContact(c, req.params.id);
+    let after = await updateContact(c, req.ctx, req.params.id, b);
+    if (b.sms_marketing === 'opted_in' && before.sms_marketing !== 'opted_in') {
+      after = (await c.query(`update contacts set sms_consent_at = now(), sms_consent_source = $2, opted_out_at = null where id = $1 returning *`, [after.id, `recorded by ${req.ctx.name}`])).rows[0];
+    }
+    return after;
+  });
   res.json(out);
 });
 
@@ -224,6 +231,17 @@ r.post('/:id/restore', requirePerm('contacts.delete'), async (req, res) => {
     await audit(c, req.ctx, 'contact.restore', 'contact', req.params.id);
   });
   res.json({ ok: true });
+});
+
+r.post('/:id/intro-sms', requirePerm('inbox.reply'), async (req, res) => {
+  const out = await withBiz(req.ctx.businessId, async c => {
+    const { sendIntroSms } = await import('../services/intro.js');
+    const ct = await getContact(c, req.params.id);
+    return sendIntroSms(c, req.ctx, ct, { reason: `staff:${Date.now()}`, purpose: 'marketing', author: 'user' });
+  });
+  if (out.skipped) throw badRequest(`Not sent: ${out.skipped}.`, { hint: out.skipped.includes('consent') ? 'Record the customer\'s agreement first (Marketing texts → Agreed).' : undefined });
+  if (out.message.status === 'blocked') return res.status(422).json({ error: `Not sent: ${out.message.status_detail}`, message: out.message });
+  res.status(201).json({ ok: true, conversationId: out.conversation.id, message: out.message });
 });
 
 r.post('/:id/notes', requirePerm('contacts.write'), async (req, res) => {

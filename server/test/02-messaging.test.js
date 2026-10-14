@@ -228,3 +228,56 @@ test('existing dssuniforms.com "Get a Quote" form: the theme webhook payload bec
   assert.equal((await publicFetch(`/api/public/${biz.public_key}/shopify-quote`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: 'not json' })).status, 400);
   assert.equal((await publicFetch(`/api/public/${biz.public_key}/shopify-quote`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ name: 'x', phone: '12' }) })).status, 400);
 });
+
+test('SMS opt-in: texting the keyword records consent with proof, confirms, and sends Natalie\'s intro — no AI call needed', async () => {
+  await drainJobs(); sent = fakeTransport(); // finish work left by earlier tests (e.g. a Messenger reply) first
+  const calls = fakeLLM(() => text('should not be used'));
+  await sms('+16195550150', 'Uniform!', 'SMkw1');
+  await drainJobs();
+  const ct = (await withBiz(biz.id, c => c.query(`select * from contacts where phone_e164 = '+16195550150'`))).rows[0];
+  assert.equal(ct.sms_marketing, 'opted_in'); assert.match(ct.sms_consent_source, /keyword "UNIFORM"/); assert.ok(ct.sms_consent_at);
+  const out = sent.filter(m => m.to === '+16195550150').map(m => m.body);
+  assert.equal(out.length, 2);
+  assert.match(out[0], /Msg & data rates may apply.*STOP/);
+  assert.match(out[1], /I'm Natalie, ai agent/); assert.match(out[1], /dssuniforms\.com\/pages\/get-a-quote/); assert.doesNotMatch(out[1], /timlss|timeless/i);
+  assert.equal(calls.length, 0);
+  assert.ok((await owner.get('/agents/actions?agent=natalie')).body.some(a => a.action === 'intro_sms' && a.based_on.consent.includes('UNIFORM')));
+  // HELP gets the help text; STOP afterwards blocks everything
+  await sms('+16195550150', 'HELP', 'SMkw2'); await drainJobs();
+  assert.match(sent.at(-1).body, /Reply STOP to opt out/);
+  await sms('+16195550150', 'STOP', 'SMkw3'); await drainJobs();
+  assert.equal((await sales.post(`/contacts/${ct.id}/intro-sms`)).status, 400);
+});
+
+test('SMS opt-in: website request with the SMS box ticked gets the intro text; without the box, no text', async () => {
+  const base = { name: 'Lena Park', Company: 'Park Bakery', email: 'lena@example.com', 'Product: Aprons': 'Yes', Quantity: '30', Decoration: 'Embroidery' };
+  await publicFetch(`/api/public/${biz.public_key}/shopify-quote`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ ...base, phone: '(619) 555-0160', 'SMS consent': 'Yes' }) });
+  await publicFetch(`/api/public/${biz.public_key}/shopify-quote`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ ...base, name: 'No Box', phone: '(619) 555-0161' }) });
+  await drainJobs();
+  assert.equal(sent.filter(m => m.to === '+16195550160').length, 1);
+  assert.equal(sent.filter(m => m.to === '+16195550161').length, 0);
+  const yes = (await sales.get('/contacts?q=555-0160')).body.rows[0];
+  assert.equal(yes.sms_marketing, 'opted_in');
+  const card = (await sales.get(`/contacts/${yes.id}`)).body.contact;
+  assert.match(card.sms_consent_source, /website quote form checkbox/);
+  // same request again doesn't send a second intro
+  await publicFetch(`/api/public/${biz.public_key}/shopify-quote`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ ...base, phone: '(619) 555-0160', 'SMS consent': 'Yes' }) });
+  await drainJobs();
+  assert.equal(sent.filter(m => m.to === '+16195550160').length, 1);
+});
+
+test('SMS opt-in: staff can send the intro only after recording agreement; the text is editable but must keep STOP', async () => {
+  await withBiz(biz.id, c => c.query(`update businesses set settings = jsonb_set(settings, '{campaignHours}', '{"start":"00:00","end":"23:59","timezone":"America/Los_Angeles","days":[1,2,3,4,5,6,7]}') where id = $1`, [biz.id]));
+  const c = (await sales.post('/contacts', { name: 'Tom Reyes', phone: '(619) 555-0170', timezone: 'America/Los_Angeles' })).body.contact;
+  const no = await sales.post(`/contacts/${c.id}/intro-sms`);
+  assert.equal(no.status, 400); assert.match(no.body.error, /No SMS consent/);
+  await sales.patch(`/contacts/${c.id}`, { sms_marketing: 'opted_in' });
+  assert.match((await sales.get(`/contacts/${c.id}`)).body.contact.sms_consent_source, /recorded by/);
+  assert.equal((await owner.patch('/settings', { sms: { introText: 'Hi {first_name}, Natalie (AI) from DS Systems here.' } })).status, 400);
+  assert.equal((await owner.patch('/settings', { sms: { introText: 'Hi {first_name}, Natalie (AI) from DS Systems here. Reply STOP to opt out.', keywords: ['uniform', 'stop', 'Polo'] } })).status, 200);
+  assert.deepEqual((await owner.get('/settings')).body.settings.sms.keywords, ['UNIFORM', 'POLO']);
+  const r = await sales.post(`/contacts/${c.id}/intro-sms`);
+  assert.equal(r.status, 201);
+  await drainJobs();
+  assert.equal(sent.filter(m => m.to === '+16195550170')[0].body, 'Hi Tom, Natalie (AI) from DS Systems here. Reply STOP to opt out.');
+});
