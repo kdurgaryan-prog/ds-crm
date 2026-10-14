@@ -42,6 +42,8 @@ r.patch('/', requirePerm('settings.write'), async (req, res) => {
     sms: z.object({ introText: z.string().min(10).max(1000).refine(t => /stop/i.test(t), 'The text must tell people how to opt out (for example "Reply STOP to opt out").'),
       keywords: z.array(z.string().regex(/^[A-Za-z0-9]{2,20}$/, 'Keywords are one word, letters and numbers only')).max(10), keywordOptIn: z.boolean(), autoTextWebLeads: z.boolean(),
       helpText: z.string().min(10).max(320) }).partial().optional(),
+    phoneText: z.object({ template: z.string().min(10).max(640).refine(t => /stop/i.test(t), 'The text must tell people how to opt out (for example "Reply STOP and we won\'t text again").'),
+      dailyLimit: z.coerce.number().int().min(1).max(500), repeatDays: z.coerce.number().int().min(1).max(365) }).partial().optional(),
   }).strict(), req.body);
   if (b.calls?.handoffNumber) {
     const n = normalizePhone(b.calls.handoffNumber);

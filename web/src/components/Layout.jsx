@@ -11,6 +11,7 @@ export const NAV = [
   { to: '/customers', label: 'Leads & Customers', icon: 'users', perm: 'contacts.read' },
   { to: '/inbox', label: 'Inbox', icon: 'inbox', perm: 'inbox.read', count: 'unanswered' },
   { to: '/calls', label: 'Calls', icon: 'phone', perm: 'calls.read', count: 'missed_calls' },
+  { to: '/phone-texts', label: 'Text from my phone', icon: 'send', perm: 'inbox.reply' },
   { to: '/pipeline', label: 'Sales Pipeline', icon: 'pipeline', perm: 'contacts.read' },
   { to: '/quotes', label: 'Quotes', icon: 'quote', perm: 'quotes.read' },
   { to: '/orders', label: 'Orders', icon: 'box', perm: 'orders.read' },

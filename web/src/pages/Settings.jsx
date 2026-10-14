@@ -37,7 +37,8 @@ function General() {
     campaignHours: { start: f.campaignHours.start, end: f.campaignHours.end, timezone: f.campaignHours.timezone, days: f.campaignHours.days },
     calls: { recordCalls: f.calls.recordCalls, recordingDisclosure: f.calls.recordingDisclosure, handoffNumber: f.calls.handoffNumber, ringTimeoutSec: Number(f.calls.ringTimeoutSec), postCallSms: f.calls.postCallSms || { enabled: false, text: '' } },
     quotes: { defaultTaxRate: Number(f.quotes.defaultTaxRate), validDays: Number(f.quotes.validDays) },
-    sms: { introText: f.sms.introText, keywords: String(f.sms.keywordsText ?? f.sms.keywords.join(', ')).split(/[,\s]+/).filter(Boolean), keywordOptIn: f.sms.keywordOptIn, autoTextWebLeads: f.sms.autoTextWebLeads, helpText: f.sms.helpText } }), 'Settings saved').then(reload);
+    sms: { introText: f.sms.introText, keywords: String(f.sms.keywordsText ?? f.sms.keywords.join(', ')).split(/[,\s]+/).filter(Boolean), keywordOptIn: f.sms.keywordOptIn, autoTextWebLeads: f.sms.autoTextWebLeads, helpText: f.sms.helpText },
+    phoneText: { template: f.phoneText.template, dailyLimit: Number(f.phoneText.dailyLimit), repeatDays: Number(f.phoneText.repeatDays) } }), 'Settings saved').then(reload);
   const check = data.settings.links.checks || {};
   const linkState = url => { const c = check[url]; if (!c) return <Pill>Not checked yet</Pill>; return c.ok ? <Pill tone="green">Works ({c.status})</Pill> : <Pill tone="red">Not working: {c.status || c.error}</Pill>; };
   const set = (path, v) => { const n = structuredClone(f); const ks = path.split('.'); let o = n; for (const k of ks.slice(0, -1)) o = o[k] ||= {}; o[ks.at(-1)] = v; setF(n); };
@@ -53,6 +54,7 @@ function General() {
           {w && <button className="btn small" disabled={busy} onClick={() => run(() => post('/settings/links/check'), 'Links checked').then(reload)}>Check links now</button>}</div>
       </section>
       <SmsSection f={f} set={set} w={w} />
+      <PhoneTextSection f={f} set={set} w={w} />
       <section className="panel"><h2>Orders</h2>
         <div className="grid2">
           <Field label="Minimum order (pieces of the same item and color)"><input className="in" type="number" min="1" disabled={!w} value={f.moq.minQty} onChange={e => set('moq.minQty', e.target.value)} /></Field>
@@ -114,6 +116,24 @@ function SmsSection({ f, set, w }) {
       <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
         <Switch disabled={!w} checked={f.sms.keywordOptIn} onChange={v => set('sms.keywordOptIn', v)} label="Texting a keyword signs the person up and sends the intro text" />
         <Switch disabled={!w} checked={f.sms.autoTextWebLeads} onChange={v => set('sms.autoTextWebLeads', v)} label="Website requests with the SMS box ticked get the intro text right away" />
+      </div>
+    </section>
+  );
+}
+
+function PhoneTextSection({ f, set, w }) {
+  const seg = smsSegments(f.phoneText.template || '');
+  return (
+    <section className="panel" id="phone-text"><h2>"Text from my phone" message</h2>
+      <p className="muted" style={{ marginTop: -6 }}>The text you or a teammate send one by one from your own phone, from a phone list. A person sends it, so it does not say it is from an AI. {'{first_name}'} and {'{company}'} are filled in.</p>
+      <Field label="Text"><textarea className="in" rows={5} disabled={!w} value={f.phoneText.template} onChange={e => set('phoneText.template', e.target.value)} /></Field>
+      <div className="row small" style={{ marginTop: 6 }}>
+        <span>{seg.len} characters</span>
+        {!/stop/i.test(f.phoneText.template || '') && <Pill tone="red">Must say how to opt out, e.g. "Reply STOP and we won't text again"</Pill>}
+      </div>
+      <div className="grid2" style={{ marginTop: 12 }}>
+        <Field label="Most texts per day (whole team)" hint="Phone carriers flag personal numbers that send a lot. 100–200 a day is a safe range."><input className="in" type="number" min="1" max="500" disabled={!w} value={f.phoneText.dailyLimit} onChange={e => set('phoneText.dailyLimit', e.target.value)} /></Field>
+        <Field label="Don't text the same person again for (days)"><input className="in" type="number" min="1" max="365" disabled={!w} value={f.phoneText.repeatDays} onChange={e => set('phoneText.repeatDays', e.target.value)} /></Field>
       </div>
     </section>
   );

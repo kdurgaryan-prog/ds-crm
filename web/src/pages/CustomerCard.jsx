@@ -4,6 +4,7 @@ import { get, patch, post, api, del } from '../lib/api.js';
 import { useLoad, LoadError, Pill, Field, Icon, useAction, Modal, Switch, Confirm } from '../components/ui.jsx';
 import { useSoftphone } from '../components/Softphone.jsx';
 import { useSession } from '../lib/session.jsx';
+import { NewPhoneList, LogReply } from './PhoneTexts.jsx';
 import { phone, dateShort, dateTime, ago, money, CHANNEL, STATUS_TONE, ORDER_TONE, leadName } from '../lib/format.js';
 
 const STATUSES = ['New', 'Contacted', 'Waiting', 'Qualified', 'Quote Sent', 'Won', 'Lost'];
@@ -20,6 +21,8 @@ export default function CustomerCard() {
   const [editing, setEditing] = useState(false);
   const [taskOpen, setTaskOpen] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
+  const [phoneText, setPhoneText] = useState(false);
+  const [logReply, setLogReply] = useState(false);
   const [run, busy] = useAction();
   if (error) return <LoadError error={error} retry={reload} />;
   if (!data) return <div className="empty">Loading customer…</div>;
@@ -44,6 +47,8 @@ export default function CustomerCard() {
           : c.phone_e164 && can('inbox.reply') && <button className="btn primary" onClick={startSms}><Icon name="send" />Text</button>}
         {c.phone_e164 && can('calls.make') && <button className="btn" disabled={blockedCall} title={blockedCall ? 'On the Do Not Call list' : ''} onClick={() => sp.open(c.phone_e164)}><Icon name="phone" />{blockedCall ? 'Do not call' : 'Call'}</button>}
         {c.phone_e164 && c.sms_marketing === 'opted_in' && !c.opted_out_at && can('inbox.reply') && <button className="btn" onClick={() => run(() => post(`/contacts/${c.id}/intro-sms`), 'Intro text queued').then(r => nav(`/inbox/${r.conversationId}`)).catch(() => {})}><Icon name="send" />Send intro text</button>}
+        {c.phone_e164 && !c.opted_out_at && c.sms_marketing !== 'opted_out' && !blockedCall && can('inbox.reply') && <button className="btn" onClick={() => setPhoneText(true)}><Icon name="send" />Text from my phone</button>}
+        {c.phone_e164 && can('inbox.reply') && <button className="btn" onClick={() => setLogReply(true)}>Log reply</button>}
         {can('tasks.write') && <button className="btn" onClick={() => setTaskOpen(true)}><Icon name="task" />Add task</button>}
         {can('quotes.write') && <button className="btn" onClick={() => run(() => post('/quotes', { contactId: c.id }), q => `Quote Q-${q.quote_no} started`).then(q => nav(`/quotes/${q.id}`))}><Icon name="quote" />New quote</button>}
         {can('quotes.write') && <button className="btn" onClick={() => run(() => post('/quotes/ai-draft', { contactId: c.id }), q => `Draft Q-${q.quote_no} prepared from the price list — review it`).then(q => nav(`/quotes/${q.id}`)).catch(() => {})}><Icon name="spark" />Draft quote from price list</button>}
@@ -93,6 +98,8 @@ export default function CustomerCard() {
         </div>
       </div>
       {editing && <EditContact c={c} customFields={facets.data?.customFields || []} onClose={() => setEditing(false)} onSaved={reload} />}
+      {phoneText && <NewPhoneList ids={[c.id]} onClose={() => setPhoneText(false)} />}
+      {logReply && <LogReply contactId={c.id} onClose={() => setLogReply(false)} onDone={reload} />}
       {taskOpen && <TaskDialog contactId={c.id} users={facets.data?.users || []} onClose={() => setTaskOpen(false)} onSaved={reload} />}
       {confirmDel && <Confirm title="Delete this customer?" danger confirmLabel="Delete" text="The customer will be hidden from all lists. An admin can restore them from the audit log." onClose={() => setConfirmDel(false)}
         onConfirm={() => run(() => del(`/contacts/${c.id}`), 'Customer deleted').then(() => nav('/customers'))} />}

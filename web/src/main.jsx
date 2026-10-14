@@ -19,6 +19,7 @@ import Tasks from './pages/Tasks.jsx';
 import Reports from './pages/Reports.jsx';
 import Agents from './pages/Agents.jsx';
 import Settings from './pages/Settings.jsx';
+import PhoneTexts from './pages/PhoneTexts.jsx';
 
 function Login() {
   const { reload } = useSession();
@@ -52,6 +53,8 @@ function App() {
         <Route path="inbox" element={<Inbox />} />
         <Route path="inbox/:id" element={<Inbox />} />
         <Route path="calls" element={<Calls />} />
+        <Route path="phone-texts" element={<PhoneTexts />} />
+        <Route path="phone-texts/:id" element={<PhoneTexts />} />
         <Route path="pipeline" element={<Pipeline />} />
         <Route path="quotes" element={<Quotes />} />
         <Route path="quotes/price-list" element={<PriceList />} />

@@ -244,6 +244,12 @@ r.post('/:id/intro-sms', requirePerm('inbox.reply'), async (req, res) => {
   res.status(201).json({ ok: true, conversationId: out.conversation.id, message: out.message });
 });
 
+r.post('/:id/phone-reply', requirePerm('inbox.reply'), async (req, res) => {
+  const { text } = parse(z.object({ text: z.string().trim().min(1).max(2000) }), req.body);
+  const { logPhoneReply } = await import('./phonetexts.js');
+  res.status(201).json(await withBiz(req.ctx.businessId, c => logPhoneReply(c, req.ctx, req.params.id, text)));
+});
+
 r.post('/:id/notes', requirePerm('contacts.write'), async (req, res) => {
   const { text } = parse(z.object({ text: z.string().min(1).max(5000) }), req.body);
   await withBiz(req.ctx.businessId, async c => {

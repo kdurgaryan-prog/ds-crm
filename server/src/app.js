@@ -9,6 +9,7 @@ import { pool, withBiz } from './db.js';
 import { errorHandler, notFound } from './lib/http.js';
 import authRoutes, { requireAuth, csrfGuard, requirePerm } from './routes/auth.js';
 import contacts from './routes/contacts.js';
+import phoneTexts from './routes/phonetexts.js';
 import inbox from './routes/inbox.js';
 import calls from './routes/calls.js';
 import tasks from './routes/tasks.js';
@@ -77,6 +78,7 @@ export function createApp() {
   api.use('/dashboard', dashboard);
   api.use('/reports', reports);
   api.use('/contacts', contacts);
+  api.use('/phone-texts', phoneTexts);
   api.use('/inbox', inbox);
   api.use('/calls', calls);
   api.use('/tasks', tasks);

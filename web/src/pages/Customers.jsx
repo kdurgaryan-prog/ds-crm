@@ -5,6 +5,7 @@ import { useLoad, LoadError, Pill, Field, Icon, useAction, Modal, Empty } from '
 import DataTable, { useTableView, ViewBar } from '../components/DataTable.jsx';
 import { phone, dateShort, ago, STATUS_TONE, leadName } from '../lib/format.js';
 import { useSession } from '../lib/session.jsx';
+import { NewPhoneList } from './PhoneTexts.jsx';
 
 const FILTER_KEYS = ['q', 'status', 'source', 'owner', 'product', 'created_from', 'created_to', 'activity_from', 'activity_to', 'qty_min', 'qty_max', 'deadline_from', 'deadline_to'];
 
@@ -33,6 +34,7 @@ function CustomerList() {
   const [page, setPage] = useState(1);
   const [showFilters, setShowFilters] = useState(FILTER_KEYS.some(k => k !== 'q' && sp.get(k)));
   const [importing, setImporting] = useState(false);
+  const [phoneList, setPhoneList] = useState(false);
   const facets = useLoad(() => get('/contacts/facets'), []);
   const custom = facets.data?.customFields || [];
   const columns = useMemo(() => [
@@ -70,6 +72,7 @@ function CustomerList() {
         {active > 0 && <button className="btn" onClick={() => setSp({}, { replace: true })}>Clear filters</button>}
         <ViewBar view={view} columns={columns} />
         <span className="spacer" />
+        {can('inbox.reply') && <button className="btn" disabled={!data?.total} onClick={() => setPhoneList(true)}><Icon name="send" />Text from my phone</button>}
         {can('contacts.import') && <button className="btn" onClick={() => setImporting(true)}>Import</button>}
         {can('contacts.export') && <a className="btn" href={`/api/contacts/export.csv${qs({ ...filters, sort, dir })}`}><Icon name="download" />Export</a>}
       </div>
@@ -101,6 +104,7 @@ function CustomerList() {
           <span>Page {data.page} of {Math.max(1, data.pages)}</span>
           <button className="btn small" disabled={page >= data.pages} onClick={() => setPage(p => p + 1)}>Next</button></div>
       </>}
+      {phoneList && <NewPhoneList filters={filters} count={data?.total} defaultName={filters.source || filters.q || ''} onClose={() => setPhoneList(false)} />}
       {importing && <ImportDialog onClose={() => { setImporting(false); reload(); }} />}
     </>
   );

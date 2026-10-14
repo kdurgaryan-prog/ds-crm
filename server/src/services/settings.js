@@ -36,6 +36,12 @@ export const DEFAULT_SETTINGS = {
     autoTextWebLeads: true,          // website requests with the SMS checkbox get the intro text right away
     helpText: 'DS Systems: custom uniforms and workwear. Call (747) 588-7117 or visit dssuniforms.com. Reply STOP to opt out.',
   },
+  phoneText: {
+    // Texts a person sends one by one from their own phone ("Text from my phone" list). {first_name} and {company} are filled in.
+    template: "Hi {first_name}, this is DS Systems in Los Angeles. We make custom uniforms and workwear with your logo (printing or embroidery) for {company}. Free quote: https://dssuniforms.com/pages/get-a-quote or call (747) 588-7117. Reply STOP and we won't text again.",
+    dailyLimit: 200,                 // most texts the whole team sends from phones per day
+    repeatDays: 30,                  // never text the same person from a phone list twice within this many days
+  },
 };
 
 export function mergeSettings(stored) {
