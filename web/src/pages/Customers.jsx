@@ -7,7 +7,7 @@ import { phone, dateShort, ago, STATUS_TONE, leadName } from '../lib/format.js';
 import { useSession } from '../lib/session.jsx';
 import { NewPhoneList } from './PhoneTexts.jsx';
 
-const FILTER_KEYS = ['q', 'status', 'source', 'owner', 'product', 'created_from', 'created_to', 'activity_from', 'activity_to', 'qty_min', 'qty_max', 'deadline_from', 'deadline_to'];
+const FILTER_KEYS = ['q', 'status', 'source', 'industry', 'city', 'county', 'zip', 'owner', 'product', 'created_from', 'created_to', 'activity_from', 'activity_to', 'qty_min', 'qty_max', 'deadline_from', 'deadline_to'];
 
 export default function Customers() {
   const [sp, setSp] = useSearchParams();
@@ -51,7 +51,12 @@ function CustomerList() {
     { key: 'deadline', label: 'Deadline', width: 110, render: r => dateShort(r.deadline) },
     { key: 'colors', label: 'Colors', width: 140, sortable: false, hidden: true },
     { key: 'sizes', label: 'Sizes', width: 140, sortable: false, hidden: true },
-    { key: 'industry', label: 'Industry', width: 130, sortable: false, hidden: true },
+    { key: 'industry', label: 'Industry', width: 130, sortable: false },
+    { key: 'title', label: 'Title', width: 140, sortable: false, hidden: true },
+    { key: 'city', label: 'City', width: 130, sortable: false },
+    { key: 'county', label: 'County', width: 130, sortable: false, hidden: true },
+    { key: 'zip', label: 'ZIP', width: 80, sortable: false, hidden: true },
+    { key: 'address', label: 'Address', width: 220, sortable: false, hidden: true },
     { key: 'email', label: 'Email', width: 200, sortable: false, hidden: true },
     { key: 'created_at', label: 'Created', width: 110, render: r => dateShort(r.created_at) },
     { key: 'last_activity_at', label: 'Last activity', width: 120, render: r => ago(r.last_activity_at) },
@@ -80,6 +85,10 @@ function CustomerList() {
         <div className="filters">
           <Field label="Status"><select className="in" value={filters.status} onChange={e => setFilter('status', e.target.value)}><option value="">Any</option>{f.statuses.map(s => <option key={s}>{s}</option>)}</select></Field>
           <Field label="Source"><select className="in" value={filters.source} onChange={e => setFilter('source', e.target.value)}><option value="">Any</option>{f.sources.map(s => <option key={s}>{s}</option>)}</select></Field>
+          <Field label="Industry"><select className="in" value={filters.industry} onChange={e => setFilter('industry', e.target.value)}><option value="">Any</option>{(f.industries || []).map(s => <option key={s}>{s}</option>)}</select></Field>
+          <Field label="City"><select className="in" value={filters.city} onChange={e => setFilter('city', e.target.value)}><option value="">Any</option>{(f.cities || []).map(s => <option key={s}>{s}</option>)}</select></Field>
+          <Field label="County"><select className="in" value={filters.county} onChange={e => setFilter('county', e.target.value)}><option value="">Any</option>{(f.counties || []).map(s => <option key={s}>{s}</option>)}</select></Field>
+          <Field label="ZIP starts with"><input className="in" inputMode="numeric" value={filters.zip} onChange={e => setFilter('zip', e.target.value)} style={{ width: 100 }} /></Field>
           <Field label="Responsible"><select className="in" value={filters.owner} onChange={e => setFilter('owner', e.target.value)}><option value="">Anyone</option><option value="none">Unassigned</option>{f.users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select></Field>
           <Field label="Product"><select className="in" value={filters.product} onChange={e => setFilter('product', e.target.value)}><option value="">Any</option>{f.products.map(s => <option key={s}>{s}</option>)}</select></Field>
           <Field label="Quantity from"><input className="in" type="number" value={filters.qty_min} onChange={e => setFilter('qty_min', e.target.value)} style={{ width: 100 }} /></Field>
@@ -104,7 +113,7 @@ function CustomerList() {
           <span>Page {data.page} of {Math.max(1, data.pages)}</span>
           <button className="btn small" disabled={page >= data.pages} onClick={() => setPage(p => p + 1)}>Next</button></div>
       </>}
-      {phoneList && <NewPhoneList filters={filters} count={data?.total} defaultName={filters.source || filters.q || ''} onClose={() => setPhoneList(false)} />}
+      {phoneList && <NewPhoneList filters={filters} count={data?.total} defaultName={[filters.industry, filters.city || filters.county, filters.source].filter(Boolean).join(' – ') || filters.q || ''} onClose={() => setPhoneList(false)} />}
       {importing && <ImportDialog onClose={() => { setImporting(false); reload(); }} />}
     </>
   );
@@ -121,7 +130,7 @@ function ImportDialog({ onClose }) {
       <button className="btn" onClick={onClose}>Cancel</button>
       {!preview ? <button className="btn primary" disabled={!file || busy} onClick={() => run(() => send(false)).then(setPreview)}>Check file</button>
         : <button className="btn primary" disabled={busy} onClick={() => run(() => send(true), r => `Imported: ${r.created} new, ${r.updated} updated`).then(setDone)}>Import {preview.created + preview.updated} rows</button>}</>}>
-      <p className="muted" style={{ margin: 0 }}>Columns we read: name, company, phone, email, source, product, quantity, decoration, industry, notes. Existing phone numbers update the existing customer — nothing is merged by name.</p>
+      <p className="muted" style={{ margin: 0 }}>Columns we read: company, name, title, phone, email, address, city, county, zip, industry, source, product, quantity, decoration, notes. In Excel use File → Save As → CSV UTF-8. Existing phone numbers update the existing customer — nothing is merged by name.</p>
       <input type="file" accept=".csv,text/csv" onChange={e => { setFile(e.target.files[0]); setPreview(null); }} />
       {preview && !done && <div className="notice"><b>{preview.total}</b> rows: {preview.created} new, {preview.updated} existing to update, {preview.invalid.length} with problems.
         {preview.invalid.slice(0, 8).map(i => <div key={i.row} className="small">Row {i.row}: {i.reason}</div>)}</div>}

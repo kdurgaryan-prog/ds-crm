@@ -59,7 +59,9 @@ export default function CustomerCard() {
             <div className="row" style={{ marginBottom: 10 }}><h2 style={{ margin: 0 }}>Details</h2><span className="spacer" />{can('contacts.write') && <button className="btn small" onClick={() => setEditing(true)}>Edit</button>}</div>
             <dl className="kv">
               <dt>Name</dt><dd>{c.name || '—'}</dd>
+              {c.title && <><dt>Title</dt><dd>{c.title}</dd></>}
               <dt>Company</dt><dd>{c.company || '—'}</dd>
+              {(c.address || c.city || c.zip) && <><dt>Address</dt><dd>{[c.address, c.city, [c.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')}{c.county && <div className="small muted">{c.county} County</div>}</dd></>}
               <dt>Phone</dt><dd>{c.phone_e164 ? <a href={`tel:${c.phone_e164}`}>{phone(c.phone_e164)}</a> : '—'}</dd>
               {c.email && <><dt>Email</dt><dd>{c.email}</dd></>}
               {data.identities.filter(i => ['instagram', 'messenger', 'whatsapp'].includes(i.kind)).map(i => <Fragment key={i.kind}><dt>{CHANNEL[i.kind]}</dt><dd>Connected</dd></Fragment>)}
@@ -199,7 +201,7 @@ export function TaskDialog({ contactId, orderId, users = [], onClose, onSaved })
 function EditContact({ c, customFields, onClose, onSaved }) {
   const [f, setF] = useState({
     name: c.name || '', company: c.company || '', phone: c.phone_raw || c.phone_e164 || '', email: c.email || '', product_type: c.product_type || '', quantity: c.quantity ?? '',
-    decoration: c.decoration || '', colors: c.colors || '', sizes: c.sizes || '', deadline: c.deadline || '', industry: c.industry || '', employees: c.employees ?? '',
+    decoration: c.decoration || '', colors: c.colors || '', sizes: c.sizes || '', deadline: c.deadline || '', industry: c.industry || '', employees: c.employees ?? '', title: c.title || '', address: c.address || '', city: c.city || '', county: c.county || '', zip: c.zip || '',
     current_apparel: c.current_apparel || '', notes: c.notes || '', source: c.source || '', instagram: c.socials?.instagram || '', facebook: c.socials?.facebook || '', custom: { ...(c.custom || {}) },
   });
   const [errs, setErrs] = useState({});
@@ -219,6 +221,11 @@ function EditContact({ c, customFields, onClose, onSaved }) {
         <div className="grid2">
           <Field label="Name" error={errs.name}><input className="in" value={f.name} onChange={set('name')} /></Field>
           <Field label="Company" error={errs.company}><input className="in" value={f.company} onChange={set('company')} /></Field>
+          <Field label="Title" error={errs.title}><input className="in" value={f.title} onChange={set('title')} placeholder="e.g. Owner, RMO" /></Field>
+          <Field label="Address" error={errs.address}><input className="in" value={f.address} onChange={set('address')} /></Field>
+          <Field label="City" error={errs.city}><input className="in" value={f.city} onChange={set('city')} /></Field>
+          <Field label="County" error={errs.county}><input className="in" value={f.county} onChange={set('county')} /></Field>
+          <Field label="ZIP" error={errs.zip}><input className="in" inputMode="numeric" value={f.zip} onChange={set('zip')} /></Field>
           <Field label="Phone" error={errs.phone}><input className={`in${errs.phone ? ' bad' : ''}`} type="tel" value={f.phone} onChange={set('phone')} /></Field>
           <Field label="Email" error={errs.email} hint="Only if the customer gave it, e.g. for the quote."><input className="in" type="email" value={f.email} onChange={set('email')} /></Field>
           <Field label="Instagram"><input className="in" value={f.instagram} onChange={set('instagram')} placeholder="@handle" /></Field>

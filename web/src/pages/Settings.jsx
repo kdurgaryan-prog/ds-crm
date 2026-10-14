@@ -101,7 +101,7 @@ function SmsSection({ f, set, w }) {
   const seg = smsSegments(f.sms.introText || '');
   return (
     <section className="panel"><h2>Natalie's intro text</h2>
-      <p className="muted" style={{ marginTop: -6 }}>Sent only to people who agreed to receive texts: they texted your keyword, ticked the SMS box on the website form, or you recorded their agreement on their card. {'{first_name}'} and {'{company}'} are filled in.</p>
+      <p className="muted" style={{ marginTop: -6 }}>Sent only to people who agreed to receive texts: they texted your keyword, ticked the SMS box on the website form, or you recorded their agreement on their card. {'{first_name}'}, {'{company}'} and {'{city}'} are filled in.</p>
       <Field label="Text"><textarea className="in" rows={8} disabled={!w} value={f.sms.introText} onChange={e => set('sms.introText', e.target.value)} /></Field>
       <div className="row small" style={{ marginTop: 6 }}>
         <span>{seg.len} characters = <b>{seg.segments} SMS segment{seg.segments > 1 ? 's' : ''}</b> per message</span>
@@ -125,7 +125,7 @@ function PhoneTextSection({ f, set, w }) {
   const seg = smsSegments(f.phoneText.template || '');
   return (
     <section className="panel" id="phone-text"><h2>"Text from my phone" message</h2>
-      <p className="muted" style={{ marginTop: -6 }}>The text you or a teammate send one by one from your own phone, from a phone list. A person sends it, so it does not say it is from an AI. {'{first_name}'} and {'{company}'} are filled in.</p>
+      <p className="muted" style={{ marginTop: -6 }}>The text you or a teammate send one by one from your own phone, from a phone list. A person sends it, so it does not say it is from an AI. {'{first_name}'}, {'{company}'} and {'{city}'} are filled in.</p>
       <Field label="Text"><textarea className="in" rows={5} disabled={!w} value={f.phoneText.template} onChange={e => set('phoneText.template', e.target.value)} /></Field>
       <div className="row small" style={{ marginTop: 6 }}>
         <span>{seg.len} characters</span>

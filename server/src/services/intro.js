@@ -8,7 +8,7 @@ export const SMS_CONFIRMATION = 'DS Systems: Thanks for texting! You will get me
 
 export function fillTemplate(text, contact) {
   const first = (contact.name || '').trim().split(/\s+/)[0] || 'there';
-  return String(text || '').replaceAll('{first_name}', first).replaceAll('{company}', contact.company || 'your company').trim();
+  return String(text || '').replaceAll('{first_name}', first).replaceAll('{company}', contact.company || 'your company').replaceAll('{city}', contact.city || 'your area').trim();
 }
 
 /** Records consent (with source and time) without sending anything. */

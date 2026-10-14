@@ -15,6 +15,7 @@ const r = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD, files: 10 } });
 
 export const STATUSES = ['New', 'Contacted', 'Waiting', 'Qualified', 'Quote Sent', 'Won', 'Lost'];
+const normZip = v => { const m = /^\s*(\d{5})(?:-?(\d{4}))?/.exec(String(v || '').padStart(5, '0')); return v ? (m ? m[1] + (m[2] ? `-${m[2]}` : '') : null) : null; };
 const contactInput = z.object({
   name: z.string().max(160).nullish(), company: z.string().max(160).nullish(), phone: z.string().max(40).nullish(),
   email: z.string().email('Enter a valid email').max(200).nullish().or(z.literal('')),
@@ -25,6 +26,8 @@ const contactInput = z.object({
   employees: z.coerce.number().int().min(0).nullish(), current_apparel: z.string().max(300).nullish(), notes: z.string().max(20000).nullish(),
   custom: z.record(z.string(), z.any()).optional(), sms_marketing: z.enum(['unknown', 'opted_in', 'opted_out']).optional(),
   call_marketing: z.enum(['unknown', 'express_written', 'opted_out']).optional(), dnc: z.boolean().optional(),
+  title: z.string().max(120).nullish(), address: z.string().max(300).nullish(), city: z.string().max(100).nullish(),
+  county: z.string().max(100).nullish(), zip: z.string().max(10).regex(/^\d{5}(-\d{4})?$/, 'Use a 5-digit ZIP').nullish().or(z.literal('')),
   timezone: z.string().max(60).nullish(), preferred_language: z.enum(['en', 'hy', 'ru', 'es']).optional(), restrictions: z.string().max(500).nullish(),
 });
 
@@ -48,6 +51,10 @@ export function buildContactQuery(q) {
   if (q.status) where.push(`c.status = any(${p(list(q.status))})`);
   if (q.source) where.push(`c.source = any(${p(list(q.source))})`);
   if (q.product) where.push(`c.product_type = any(${p(list(q.product))})`);
+  if (q.industry) where.push(`c.industry = any(${p(list(q.industry))})`);
+  if (q.city) where.push(`c.city = any(${p(list(q.city))})`);
+  if (q.county) where.push(`c.county = any(${p(list(q.county))})`);
+  if (q.zip) where.push(`c.zip like ${p(String(q.zip).replace(/\D/g, '').slice(0, 5) + '%')}`);
   if (q.owner) where.push(q.owner === 'none' ? 'c.owner_user_id is null' : `c.owner_user_id = ${p(q.owner)}`);
   if (q.created_from) where.push(`c.created_at >= ${p(q.created_from)}`);
   if (q.created_to) where.push(`c.created_at < (${p(q.created_to)}::date + 1)`);
@@ -70,7 +77,7 @@ r.get('/', requirePerm('contacts.read'), async (req, res) => {
     const total = (await c.query(`select count(*)::int n from contacts c where ${where}`, vals)).rows[0].n;
     const rows = (await c.query(
       `select c.id, c.lead_no, c.name, c.company, c.phone_e164, c.email, c.socials, c.source, c.status, c.product_type, c.quantity, c.decoration,
-              c.colors, c.sizes, c.deadline, c.industry, c.custom, c.created_at, c.last_activity_at, c.dnc, c.opted_out_at, c.sms_marketing,
+              c.colors, c.sizes, c.deadline, c.industry, c.title, c.address, c.city, c.county, c.zip, c.custom, c.created_at, c.last_activity_at, c.dnc, c.opted_out_at, c.sms_marketing,
               c.owner_user_id, u.name owner_name
          from contacts c left join users u on u.id = c.owner_user_id
         where ${where} order by ${order} limit ${size} offset ${(page - 1) * size}`, vals)).rows;
@@ -84,6 +91,9 @@ r.get('/facets', requirePerm('contacts.read'), async (req, res) => {
     sources: (await c.query(`select distinct source from contacts where source is not null and deleted_at is null order by 1`)).rows.map(x => x.source),
     products: (await c.query(`select distinct product_type from contacts where product_type is not null and deleted_at is null order by 1`)).rows.map(x => x.product_type),
     users: (await c.query(`select u.id, u.name, m.role from memberships m join users u on u.id = m.user_id where m.business_id = app_biz() and m.active and u.active order by u.name`)).rows,
+    industries: (await c.query(`select distinct industry from contacts where industry is not null and deleted_at is null order by 1 limit 500`)).rows.map(x => x.industry),
+    cities: (await c.query(`select distinct city from contacts where city is not null and deleted_at is null order by 1 limit 2000`)).rows.map(x => x.city),
+    counties: (await c.query(`select distinct county from contacts where county is not null and deleted_at is null order by 1 limit 500`)).rows.map(x => x.county),
     statuses: STATUSES,
     customFields: (await c.query(`select * from custom_fields where entity = 'contact' order by position, label`)).rows,
   }));
@@ -128,7 +138,7 @@ r.get('/export.csv', requirePerm('contacts.export'), async (req, res) => {
   const rows = await withBiz(req.ctx.businessId, async c => {
     await audit(c, req.ctx, 'contacts.export', 'contact', null, null, { filters: req.query });
     return (await c.query(`select c.lead_no, c.name, c.company, c.phone_e164 phone, c.email, c.source, c.status, c.product_type, c.quantity, c.decoration, c.colors, c.sizes,
-      c.deadline, c.industry, c.employees, c.notes, c.sms_marketing, c.call_marketing, c.dnc, c.opted_out_at, c.created_at, c.last_activity_at, c.custom
+      c.deadline, c.industry, c.title, c.address, c.city, c.county, c.zip, c.employees, c.notes, c.sms_marketing, c.call_marketing, c.dnc, c.opted_out_at, c.created_at, c.last_activity_at, c.custom
       from contacts c where ${where} order by ${order}`, vals)).rows;
   });
   res.set('content-type', 'text/csv; charset=utf-8').set('content-disposition', `attachment; filename="ds-crm-customers-${new Date().toISOString().slice(0, 10)}.csv"`);
@@ -142,9 +152,13 @@ r.post('/import', requirePerm('contacts.import'), upload.single('file'), async (
   try { rows = csvParse(req.file.buffer, { columns: h => h.map(x => String(x).trim().toLowerCase().replace(/\s+/g, '_')), skip_empty_lines: true, trim: true, bom: true }); }
   catch (e) { throw badRequest(`This file could not be read as CSV: ${e.message}`); }
   const commit = req.query.commit === '1';
-  const map = row => ({ name: row.name || row.full_name || null, company: row.company || null, phone: row.phone || row.phone_number || row.mobile || null, email: row.email || null,
+  const map = row => ({ name: row.name || row.full_name || row.contact_name || row.licensee || row.licensee_name || row.owner || row.owner_name || null,
+    company: row.company || row.company_name || row.business_name || row.business || row.organization || null,
+    phone: row.phone || row.phone_number || row.mobile || row.business_phone || row.telephone || null, email: row.email || row.email_address || null,
     source: row.source || 'import', product_type: row.product_type || row.product || null, quantity: row.quantity ? Number(row.quantity) : null,
-    decoration: row.decoration || null, notes: row.notes || null, industry: row.industry || null });
+    decoration: row.decoration || null, notes: row.notes || null, industry: row.industry || null,
+    title: row.title || row.job_title || row.position || null, address: row.address || row.street || row.street_address || row.address_1 || row.address1 || null,
+    city: row.city || null, county: row.county || null, zip: normZip(row.zip || row.zip_code || row.zipcode || row.postal_code) });
   const report = { total: rows.length, created: 0, updated: 0, invalid: [], duplicatesFlagged: 0 };
   await withBiz(req.ctx.businessId, async c => {
     for (const [i, row] of rows.entries()) {

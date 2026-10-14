@@ -117,3 +117,23 @@ test('quiet hours: sending window must stay within 08:00-21:00; area codes give 
   assert.equal(withinCampaignHours(H, timezoneFor({ phone_e164: '+17475550100' }), tue1946).ok, true);
   assert.equal(withinCampaignHours(H, timezoneFor({ phone_e164: '+12125550100' }), tue1946).ok, false); // 22:46 in New York
 });
+
+test('import reads licensing-board columns: title, address, city, county, ZIP; lists filter by them', async () => {
+  const csv = 'Business Name,Licensee Name,Title,Business Phone,Address,City,County,ZIP Code,Industry,Source\n'
+    + 'Valley Roofing Inc,Mike Torres,RMO,(818) 555-0311,123 Main St,Van Nuys,Los Angeles,91401,Construction,CSLB\n'
+    + 'Bay Plumbing,Lisa Wong,Owner,(415) 555-0312,9 Market St,San Francisco,San Francisco,94103-1234,Construction,CSLB\n';
+  const fd = new FormData(); fd.append('file', new Blob([csv], { type: 'text/csv' }), 'cslb.csv');
+  const r = await owner.post('/contacts/import?commit=1', fd);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.created, 2);
+  const la = (await owner.get('/contacts?county=Los%20Angeles&industry=Construction')).body;
+  assert.equal(la.total, 1);
+  assert.deepEqual([la.rows[0].company, la.rows[0].name, la.rows[0].title, la.rows[0].city, la.rows[0].zip], ['Valley Roofing Inc', 'Mike Torres', 'RMO', 'Van Nuys', '91401']);
+  assert.equal((await owner.get('/contacts?zip=941')).body.rows[0].zip, '94103-1234');
+  const facets = (await owner.get('/contacts/facets')).body;
+  assert.ok(facets.cities.includes('Van Nuys') && facets.counties.includes('San Francisco') && facets.industries.includes('Construction'));
+  // a phone list made from these filters
+  const list = await sales.post('/phone-texts/batches', { name: 'LA roofers', filters: { county: 'Los Angeles', industry: 'Construction' } });
+  assert.equal(list.body.added, 1);
+  assert.equal((await owner.patch(`/contacts/${la.rows[0].id}`, { zip: 'abc' })).status, 400);
+});
