@@ -15,6 +15,29 @@ const r = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD, files: 10 } });
 
 export const STATUSES = ['New', 'Contacted', 'Waiting', 'Qualified', 'Quote Sent', 'Won', 'Lost'];
+// Spreadsheet headers like "License #", "Business Name", "ZIP Code" become license, business_name, zip_code.
+const normHeader = h => String(h ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+export async function readImportFile(file) {
+  const isXlsx = /\.xlsx$/i.test(file.originalname || '') || /spreadsheetml/.test(file.mimetype || '');
+  if (isXlsx) {
+    const ExcelJS = (await import('exceljs')).default;
+    const wb = new ExcelJS.Workbook();
+    try { await wb.xlsx.load(file.buffer); } catch (e) { throw badRequest(`This Excel file could not be opened: ${e.message}`, { hint: 'Save it again in Excel as .xlsx, or as CSV UTF-8.' }); }
+    const ws = wb.worksheets.find(w => w.actualRowCount > 0);
+    if (!ws) return [];
+    let header = null; const out = [];
+    ws.eachRow({ includeEmpty: false }, row => {
+      const cells = []; for (let i = 1; i <= ws.columnCount; i++) cells.push(String(row.getCell(i).text ?? '').trim());
+      if (!header) { header = cells.map(normHeader); return; }
+      if (cells.every(v => !v)) return;
+      out.push(Object.fromEntries(header.map((h, i) => [h, cells[i] || ''])));
+    });
+    return out;
+  }
+  if (/\.xls$/i.test(file.originalname || '')) throw badRequest('Old Excel files (.xls) cannot be read.', { hint: 'In Excel: File → Save As → Excel Workbook (.xlsx) or CSV UTF-8.' });
+  try { return csvParse(file.buffer, { columns: h => h.map(normHeader), skip_empty_lines: true, trim: true, bom: true, delimiter: [',', '\t', ';'], relax_column_count: true }); }
+  catch (e) { throw badRequest(`This file could not be read: ${e.message}`, { hint: 'Use an Excel file (.xlsx) or CSV UTF-8.' }); }
+}
 const normZip = v => { const m = /^\s*(\d{5})(?:-?(\d{4}))?/.exec(String(v || '').padStart(5, '0')); return v ? (m ? m[1] + (m[2] ? `-${m[2]}` : '') : null) : null; };
 const contactInput = z.object({
   name: z.string().max(160).nullish(), company: z.string().max(160).nullish(), phone: z.string().max(40).nullish(),
@@ -28,6 +51,7 @@ const contactInput = z.object({
   call_marketing: z.enum(['unknown', 'express_written', 'opted_out']).optional(), dnc: z.boolean().optional(),
   title: z.string().max(120).nullish(), address: z.string().max(300).nullish(), city: z.string().max(100).nullish(),
   county: z.string().max(100).nullish(), zip: z.string().max(10).regex(/^\d{5}(-\d{4})?$/, 'Use a 5-digit ZIP').nullish().or(z.literal('')),
+  license_no: z.string().max(40).nullish(), business_type: z.string().max(80).nullish(), industry_type: z.string().max(120).nullish(), other_personnel: z.string().max(2000).nullish(),
   timezone: z.string().max(60).nullish(), preferred_language: z.enum(['en', 'hy', 'ru', 'es']).optional(), restrictions: z.string().max(500).nullish(),
 });
 
@@ -52,6 +76,7 @@ export function buildContactQuery(q) {
   if (q.source) where.push(`c.source = any(${p(list(q.source))})`);
   if (q.product) where.push(`c.product_type = any(${p(list(q.product))})`);
   if (q.industry) where.push(`c.industry = any(${p(list(q.industry))})`);
+  if (q.industry_type) where.push(`c.industry_type = any(${p(list(q.industry_type))})`);
   if (q.city) where.push(`c.city = any(${p(list(q.city))})`);
   if (q.county) where.push(`c.county = any(${p(list(q.county))})`);
   if (q.zip) where.push(`c.zip like ${p(String(q.zip).replace(/\D/g, '').slice(0, 5) + '%')}`);
@@ -77,7 +102,7 @@ r.get('/', requirePerm('contacts.read'), async (req, res) => {
     const total = (await c.query(`select count(*)::int n from contacts c where ${where}`, vals)).rows[0].n;
     const rows = (await c.query(
       `select c.id, c.lead_no, c.name, c.company, c.phone_e164, c.email, c.socials, c.source, c.status, c.product_type, c.quantity, c.decoration,
-              c.colors, c.sizes, c.deadline, c.industry, c.title, c.address, c.city, c.county, c.zip, c.custom, c.created_at, c.last_activity_at, c.dnc, c.opted_out_at, c.sms_marketing,
+              c.colors, c.sizes, c.deadline, c.industry, c.title, c.address, c.city, c.county, c.zip, c.license_no, c.business_type, c.industry_type, c.custom, c.created_at, c.last_activity_at, c.dnc, c.opted_out_at, c.sms_marketing,
               c.owner_user_id, u.name owner_name
          from contacts c left join users u on u.id = c.owner_user_id
         where ${where} order by ${order} limit ${size} offset ${(page - 1) * size}`, vals)).rows;
@@ -92,6 +117,7 @@ r.get('/facets', requirePerm('contacts.read'), async (req, res) => {
     products: (await c.query(`select distinct product_type from contacts where product_type is not null and deleted_at is null order by 1`)).rows.map(x => x.product_type),
     users: (await c.query(`select u.id, u.name, m.role from memberships m join users u on u.id = m.user_id where m.business_id = app_biz() and m.active and u.active order by u.name`)).rows,
     industries: (await c.query(`select distinct industry from contacts where industry is not null and deleted_at is null order by 1 limit 500`)).rows.map(x => x.industry),
+    industryTypes: (await c.query(`select distinct industry_type from contacts where industry_type is not null and deleted_at is null order by 1 limit 500`)).rows.map(x => x.industry_type),
     cities: (await c.query(`select distinct city from contacts where city is not null and deleted_at is null order by 1 limit 2000`)).rows.map(x => x.city),
     counties: (await c.query(`select distinct county from contacts where county is not null and deleted_at is null order by 1 limit 500`)).rows.map(x => x.county),
     statuses: STATUSES,
@@ -138,7 +164,7 @@ r.get('/export.csv', requirePerm('contacts.export'), async (req, res) => {
   const rows = await withBiz(req.ctx.businessId, async c => {
     await audit(c, req.ctx, 'contacts.export', 'contact', null, null, { filters: req.query });
     return (await c.query(`select c.lead_no, c.name, c.company, c.phone_e164 phone, c.email, c.source, c.status, c.product_type, c.quantity, c.decoration, c.colors, c.sizes,
-      c.deadline, c.industry, c.title, c.address, c.city, c.county, c.zip, c.employees, c.notes, c.sms_marketing, c.call_marketing, c.dnc, c.opted_out_at, c.created_at, c.last_activity_at, c.custom
+      c.deadline, c.industry, c.title, c.address, c.city, c.county, c.zip, c.license_no, c.business_type, c.industry_type, c.other_personnel, c.employees, c.notes, c.sms_marketing, c.call_marketing, c.dnc, c.opted_out_at, c.created_at, c.last_activity_at, c.custom
       from contacts c where ${where} order by ${order}`, vals)).rows;
   });
   res.set('content-type', 'text/csv; charset=utf-8').set('content-disposition', `attachment; filename="ds-crm-customers-${new Date().toISOString().slice(0, 10)}.csv"`);
@@ -147,19 +173,27 @@ r.get('/export.csv', requirePerm('contacts.export'), async (req, res) => {
 
 // Import: preview first (no writes), then commit. Existing phones/emails update blanks only; no name-based merging.
 r.post('/import', requirePerm('contacts.import'), upload.single('file'), async (req, res) => {
-  if (!req.file) throw badRequest('Choose a CSV file.');
-  let rows;
-  try { rows = csvParse(req.file.buffer, { columns: h => h.map(x => String(x).trim().toLowerCase().replace(/\s+/g, '_')), skip_empty_lines: true, trim: true, bom: true }); }
-  catch (e) { throw badRequest(`This file could not be read as CSV: ${e.message}`); }
+  if (!req.file) throw badRequest('Choose an Excel (.xlsx) or CSV file.');
+  const rows = await readImportFile(req.file);
+  if (!rows.length) throw badRequest('This file has no rows under the header.');
+  const defaultSource = String(req.query.source || '').trim().slice(0, 60) || 'import';
   const commit = req.query.commit === '1';
   const map = row => ({ name: row.name || row.full_name || row.contact_name || row.licensee || row.licensee_name || row.owner || row.owner_name || null,
     company: row.company || row.company_name || row.business_name || row.business || row.organization || null,
-    phone: row.phone || row.phone_number || row.mobile || row.business_phone || row.telephone || null, email: row.email || row.email_address || null,
-    source: row.source || 'import', product_type: row.product_type || row.product || null, quantity: row.quantity ? Number(row.quantity) : null,
+    phone: row.phone || row.phone_number || row.mobile || row.business_phone || row.telephone || null, email: row.email || row.email_address || row.e_mail || null,
+    source: row.source || defaultSource, product_type: row.product_type || row.product || null, quantity: row.quantity ? Number(row.quantity) : null,
     decoration: row.decoration || null, notes: row.notes || null, industry: row.industry || null,
     title: row.title || row.job_title || row.position || null, address: row.address || row.street || row.street_address || row.address_1 || row.address1 || null,
-    city: row.city || null, county: row.county || null, zip: normZip(row.zip || row.zip_code || row.zipcode || row.postal_code) });
-  const report = { total: rows.length, created: 0, updated: 0, invalid: [], duplicatesFlagged: 0 };
+    city: row.city || null, county: row.county || null, zip: normZip(row.zip || row.zip_code || row.zipcode || row.postal_code),
+    license_no: row.license || row.license_number || row.license_no || row.lic || null, business_type: row.business_type || row.entity_type || null,
+    industry_type: row.industry_type || row.classification || null, other_personnel: row.other_personnel || null });
+  const KNOWN = new Set(['n', 'no', 'name', 'full_name', 'contact_name', 'licensee', 'licensee_name', 'owner', 'owner_name', 'company', 'company_name', 'business_name', 'business', 'organization',
+    'phone', 'phone_number', 'mobile', 'business_phone', 'telephone', 'email', 'email_address', 'e_mail', 'source', 'product_type', 'product', 'quantity', 'decoration', 'notes', 'industry',
+    'title', 'job_title', 'position', 'address', 'street', 'street_address', 'address_1', 'address1', 'city', 'county', 'zip', 'zip_code', 'zipcode', 'postal_code',
+    'license', 'license_number', 'license_no', 'lic', 'business_type', 'entity_type', 'industry_type', 'classification', 'other_personnel']);
+  const headers = Object.keys(rows[0] || {}).filter(Boolean);
+  const report = { total: rows.length, created: 0, updated: 0, invalid: [], duplicatesFlagged: 0, source: defaultSource,
+    columns: { used: headers.filter(h => KNOWN.has(h) && !['n', 'no'].includes(h)), ignored: headers.filter(h => !KNOWN.has(h)) } };
   await withBiz(req.ctx.businessId, async c => {
     for (const [i, row] of rows.entries()) {
       const m = map(row);

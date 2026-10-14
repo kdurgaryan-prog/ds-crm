@@ -7,7 +7,7 @@ import { phone, dateShort, ago, STATUS_TONE, leadName } from '../lib/format.js';
 import { useSession } from '../lib/session.jsx';
 import { NewPhoneList } from './PhoneTexts.jsx';
 
-const FILTER_KEYS = ['q', 'status', 'source', 'industry', 'city', 'county', 'zip', 'owner', 'product', 'created_from', 'created_to', 'activity_from', 'activity_to', 'qty_min', 'qty_max', 'deadline_from', 'deadline_to'];
+const FILTER_KEYS = ['q', 'status', 'source', 'industry', 'industry_type', 'city', 'county', 'zip', 'owner', 'product', 'created_from', 'created_to', 'activity_from', 'activity_to', 'qty_min', 'qty_max', 'deadline_from', 'deadline_to'];
 
 export default function Customers() {
   const [sp, setSp] = useSearchParams();
@@ -52,6 +52,9 @@ function CustomerList() {
     { key: 'colors', label: 'Colors', width: 140, sortable: false, hidden: true },
     { key: 'sizes', label: 'Sizes', width: 140, sortable: false, hidden: true },
     { key: 'industry', label: 'Industry', width: 130, sortable: false },
+    { key: 'industry_type', label: 'Industry type', width: 150, sortable: false },
+    { key: 'license_no', label: 'License #', width: 100, sortable: false, hidden: true },
+    { key: 'business_type', label: 'Business type', width: 130, sortable: false, hidden: true },
     { key: 'title', label: 'Title', width: 140, sortable: false, hidden: true },
     { key: 'city', label: 'City', width: 130, sortable: false },
     { key: 'county', label: 'County', width: 130, sortable: false, hidden: true },
@@ -86,6 +89,7 @@ function CustomerList() {
           <Field label="Status"><select className="in" value={filters.status} onChange={e => setFilter('status', e.target.value)}><option value="">Any</option>{f.statuses.map(s => <option key={s}>{s}</option>)}</select></Field>
           <Field label="Source"><select className="in" value={filters.source} onChange={e => setFilter('source', e.target.value)}><option value="">Any</option>{f.sources.map(s => <option key={s}>{s}</option>)}</select></Field>
           <Field label="Industry"><select className="in" value={filters.industry} onChange={e => setFilter('industry', e.target.value)}><option value="">Any</option>{(f.industries || []).map(s => <option key={s}>{s}</option>)}</select></Field>
+          <Field label="Industry type"><select className="in" value={filters.industry_type} onChange={e => setFilter('industry_type', e.target.value)}><option value="">Any</option>{(f.industryTypes || []).map(s => <option key={s}>{s}</option>)}</select></Field>
           <Field label="City"><select className="in" value={filters.city} onChange={e => setFilter('city', e.target.value)}><option value="">Any</option>{(f.cities || []).map(s => <option key={s}>{s}</option>)}</select></Field>
           <Field label="County"><select className="in" value={filters.county} onChange={e => setFilter('county', e.target.value)}><option value="">Any</option>{(f.counties || []).map(s => <option key={s}>{s}</option>)}</select></Field>
           <Field label="ZIP starts with"><input className="in" inputMode="numeric" value={filters.zip} onChange={e => setFilter('zip', e.target.value)} style={{ width: 100 }} /></Field>
@@ -124,16 +128,19 @@ function ImportDialog({ onClose }) {
   const [preview, setPreview] = useState(null);
   const [done, setDone] = useState(null);
   const [run, busy] = useAction();
-  const send = commit => { const fd = new FormData(); fd.append('file', file); return api(`/contacts/import${commit ? '?commit=1' : ''}`, { method: 'POST', form: fd }); };
+  const [source, setSource] = useState('');
+  const send = commit => { const fd = new FormData(); fd.append('file', file); return api(`/contacts/import${qs({ commit: commit ? 1 : undefined, source: source.trim() || undefined })}`, { method: 'POST', form: fd }); };
   return (
-    <Modal title="Import customers from CSV" onClose={onClose} footer={done ? <button className="btn primary" onClick={onClose}>Done</button> : <>
+    <Modal title="Import customers" onClose={onClose} footer={done ? <button className="btn primary" onClick={onClose}>Done</button> : <>
       <button className="btn" onClick={onClose}>Cancel</button>
       {!preview ? <button className="btn primary" disabled={!file || busy} onClick={() => run(() => send(false)).then(setPreview)}>Check file</button>
         : <button className="btn primary" disabled={busy} onClick={() => run(() => send(true), r => `Imported: ${r.created} new, ${r.updated} updated`).then(setDone)}>Import {preview.created + preview.updated} rows</button>}</>}>
-      <p className="muted" style={{ margin: 0 }}>Columns we read: company, name, title, phone, email, address, city, county, zip, industry, source, product, quantity, decoration, notes. In Excel use File → Save As → CSV UTF-8. Existing phone numbers update the existing customer — nothing is merged by name.</p>
-      <input type="file" accept=".csv,text/csv" onChange={e => { setFile(e.target.files[0]); setPreview(null); }} />
+      <p className="muted" style={{ margin: 0 }}>Excel (.xlsx) or CSV. Columns we read: Business Name, Contact Name, Title, Phone, Email, Address, City, County, Zip, License #, Business Type, Industry, Industry Type, Other Personnel, Source, Notes. Existing phone numbers update the existing customer — nothing is merged by name.</p>
+      <input type="file" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={e => { const fl = e.target.files[0]; setFile(fl); setPreview(null); if (fl && !source) setSource(fl.name.replace(/\.(xlsx|csv)$/i, '').slice(0, 60)); }} />
+      <Field label="Source for this file" hint="Used when the file has no Source column. You will filter by it to make a texting list, e.g. CSLB Los Angeles."><input className="in" value={source} maxLength={60} onChange={e => { setSource(e.target.value); setPreview(null); }} /></Field>
       {preview && !done && <div className="notice"><b>{preview.total}</b> rows: {preview.created} new, {preview.updated} existing to update, {preview.invalid.length} with problems.
-        {preview.invalid.slice(0, 8).map(i => <div key={i.row} className="small">Row {i.row}: {i.reason}</div>)}</div>}
+        {preview.invalid.slice(0, 8).map(i => <div key={i.row} className="small">Row {i.row}: {i.reason}</div>)}
+        {preview.columns && <div className="small" style={{ marginTop: 6 }}>Columns read: {preview.columns.used.join(', ') || 'none'}{preview.columns.ignored.length > 0 && <><br /><span className="muted">Not used: {preview.columns.ignored.join(', ')}</span></>}</div>}</div>}
       {done && <div className="notice good">Imported {done.created} new and updated {done.updated}. {done.duplicatesFlagged > 0 && `${done.duplicatesFlagged} possible duplicates are waiting for review.`}</div>}
     </Modal>
   );

@@ -75,7 +75,11 @@ export default function CustomerCard() {
               <dt>Colors</dt><dd>{c.colors || '—'}</dd>
               <dt>Sizes</dt><dd>{c.sizes || '—'}</dd>
               <dt>Deadline</dt><dd>{c.deadline ? dateShort(c.deadline) : '—'}</dd>
-              {c.industry && <><dt>Industry</dt><dd>{c.industry}</dd></>}
+              {c.industry && <><dt>Industry</dt><dd>{c.industry}{c.industry_type && <div className="small muted">{c.industry_type}</div>}</dd></>}
+              {!c.industry && c.industry_type && <><dt>Industry type</dt><dd>{c.industry_type}</dd></>}
+              {c.license_no && <><dt>License #</dt><dd>{c.license_no}</dd></>}
+              {c.business_type && <><dt>Business type</dt><dd>{c.business_type}</dd></>}
+              {c.other_personnel && <><dt>Other personnel</dt><dd style={{ whiteSpace: 'pre-line' }}>{c.other_personnel}</dd></>}
               {c.employees && <><dt>Employees</dt><dd>{c.employees}</dd></>}
               {c.current_apparel && <><dt>Wears now</dt><dd>{c.current_apparel}</dd></>}
               {(facets.data?.customFields || []).map(f => <Fragment key={f.key}><dt>{f.label}</dt><dd>{String(c.custom?.[f.key] ?? '—')}</dd></Fragment>)}
@@ -201,7 +205,7 @@ export function TaskDialog({ contactId, orderId, users = [], onClose, onSaved })
 function EditContact({ c, customFields, onClose, onSaved }) {
   const [f, setF] = useState({
     name: c.name || '', company: c.company || '', phone: c.phone_raw || c.phone_e164 || '', email: c.email || '', product_type: c.product_type || '', quantity: c.quantity ?? '',
-    decoration: c.decoration || '', colors: c.colors || '', sizes: c.sizes || '', deadline: c.deadline || '', industry: c.industry || '', employees: c.employees ?? '', title: c.title || '', address: c.address || '', city: c.city || '', county: c.county || '', zip: c.zip || '',
+    decoration: c.decoration || '', colors: c.colors || '', sizes: c.sizes || '', deadline: c.deadline || '', industry: c.industry || '', employees: c.employees ?? '', license_no: c.license_no || '', business_type: c.business_type || '', industry_type: c.industry_type || '', other_personnel: c.other_personnel || '', title: c.title || '', address: c.address || '', city: c.city || '', county: c.county || '', zip: c.zip || '',
     current_apparel: c.current_apparel || '', notes: c.notes || '', source: c.source || '', instagram: c.socials?.instagram || '', facebook: c.socials?.facebook || '', custom: { ...(c.custom || {}) },
   });
   const [errs, setErrs] = useState({});
@@ -226,6 +230,10 @@ function EditContact({ c, customFields, onClose, onSaved }) {
           <Field label="City" error={errs.city}><input className="in" value={f.city} onChange={set('city')} /></Field>
           <Field label="County" error={errs.county}><input className="in" value={f.county} onChange={set('county')} /></Field>
           <Field label="ZIP" error={errs.zip}><input className="in" inputMode="numeric" value={f.zip} onChange={set('zip')} /></Field>
+          <Field label="License #" error={errs.license_no}><input className="in" value={f.license_no} onChange={set('license_no')} /></Field>
+          <Field label="Business type" error={errs.business_type}><input className="in" value={f.business_type} onChange={set('business_type')} placeholder="e.g. Corporation" /></Field>
+          <Field label="Industry type" error={errs.industry_type}><input className="in" value={f.industry_type} onChange={set('industry_type')} /></Field>
+          <Field label="Other personnel" error={errs.other_personnel}><input className="in" value={f.other_personnel} onChange={set('other_personnel')} /></Field>
           <Field label="Phone" error={errs.phone}><input className={`in${errs.phone ? ' bad' : ''}`} type="tel" value={f.phone} onChange={set('phone')} /></Field>
           <Field label="Email" error={errs.email} hint="Only if the customer gave it, e.g. for the quote."><input className="in" type="email" value={f.email} onChange={set('email')} /></Field>
           <Field label="Instagram"><input className="in" value={f.instagram} onChange={set('instagram')} placeholder="@handle" /></Field>

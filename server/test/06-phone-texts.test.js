@@ -137,3 +137,29 @@ test('import reads licensing-board columns: title, address, city, county, ZIP; l
   assert.equal(list.body.added, 1);
   assert.equal((await owner.patch(`/contacts/${la.rows[0].id}`, { zip: 'abc' })).status, 400);
 });
+
+test('import the owner\'s Excel layout as is (N, License #, Business Name, Contact Name, … industry type)', async () => {
+  const ExcelJS = (await import('exceljs')).default;
+  const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('CSLB');
+  ws.addRow(['N', 'License #', 'Business Name', 'Contact Name', 'Title', 'Business Type', 'Address', 'City', 'Zip', 'County', 'Phone', 'Other Personnel', 'industry', 'industry type']);
+  ws.addRow([1, 1012345, 'Sunset Electric Inc', 'Ara Hakobyan', 'RMO', 'Corporation', '55 Sunset Blvd', 'Glendale', 91203, 'Los Angeles', 8185550411, 'Nara Hakobyan (CEO)', 'Construction', 'C-10 Electrical']);
+  ws.addRow([2, 1012346, 'Pacific Paint Co', 'Tom Reyes', 'Owner', 'Sole Owner', '7 Ocean Ave', 'Long Beach', 90802, 'Los Angeles', '(562) 555-0412', '', 'Construction', 'C-33 Painting']);
+  ws.addRow([3, 1012347, 'No Phone LLC', 'Sam Lee', 'Owner', 'LLC', '', 'Pasadena', 91101, 'Los Angeles', 'n/a', '', 'Construction', 'C-33 Painting']);
+  const buf = await wb.xlsx.writeBuffer();
+  const file = () => { const fd = new FormData(); fd.append('file', new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'CSLB LA.xlsx'); return fd; };
+  const pre = await owner.post('/contacts/import?source=CSLB%20LA', file());
+  assert.equal(pre.status, 200, JSON.stringify(pre.body));
+  assert.deepEqual(pre.body.columns.ignored, []);
+  assert.ok(pre.body.columns.used.includes('license') && pre.body.columns.used.includes('industry_type'));
+  assert.equal(pre.body.invalid.length, 1);                       // "n/a" is not a phone
+  const r = await owner.post('/contacts/import?commit=1&source=CSLB%20LA', file());
+  assert.equal(r.body.created, 2);
+  const rows = (await owner.get('/contacts?source=CSLB%20LA&industry_type=C-10%20Electrical')).body.rows;
+  assert.equal(rows.length, 1);
+  const c = (await owner.get(`/contacts/${rows[0].id}`)).body.contact;
+  assert.deepEqual([c.company, c.name, c.title, c.license_no, c.business_type, c.city, c.zip, c.county, c.phone_e164, c.other_personnel, c.industry, c.industry_type],
+    ['Sunset Electric Inc', 'Ara Hakobyan', 'RMO', '1012345', 'Corporation', 'Glendale', '91203', 'Los Angeles', '+18185550411', 'Nara Hakobyan (CEO)', 'Construction', 'C-10 Electrical']);
+  const tsv = 'Business Name\tContact Name\tPhone\tCity\nTab Tile Co\tAni Sargsyan\t(626) 555-0413\tPasadena\n';
+  const fd = new FormData(); fd.append('file', new Blob([tsv], { type: 'text/plain' }), 'list.csv');
+  assert.equal((await owner.post('/contacts/import?commit=1', fd)).body.created, 1, 'tab-separated text works too');
+});

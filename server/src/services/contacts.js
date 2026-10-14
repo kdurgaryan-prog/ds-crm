@@ -5,7 +5,7 @@ import { notFound, badRequest } from '../lib/http.js';
 
 export const CONTACT_FIELDS = ['name', 'company', 'phone_raw', 'email', 'socials', 'source', 'owner_user_id', 'status', 'product_type', 'quantity',
   'decoration', 'colors', 'sizes', 'deadline', 'industry', 'employees', 'current_apparel', 'notes', 'custom', 'sms_marketing', 'call_marketing',
-  'dnc', 'timezone', 'preferred_language', 'restrictions', 'title', 'address', 'city', 'county', 'zip'];
+  'dnc', 'timezone', 'preferred_language', 'restrictions', 'title', 'address', 'city', 'county', 'zip', 'license_no', 'business_type', 'industry_type', 'other_personnel'];
 
 function normName(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
 
@@ -122,7 +122,7 @@ export async function mergeContacts(c, ctx, intoId, fromId) {
   if (intoId === fromId) throw badRequest('Choose two different customers to merge.');
   const into = await getContact(c, intoId); const from = await getContact(c, fromId);
   const fill = {};
-  for (const f of ['name', 'company', 'email', 'product_type', 'quantity', 'decoration', 'colors', 'sizes', 'deadline', 'industry', 'employees', 'current_apparel', 'timezone', 'title', 'address', 'city', 'county', 'zip']) {
+  for (const f of ['name', 'company', 'email', 'product_type', 'quantity', 'decoration', 'colors', 'sizes', 'deadline', 'industry', 'employees', 'current_apparel', 'timezone', 'title', 'address', 'city', 'county', 'zip', 'license_no', 'business_type', 'industry_type', 'other_personnel']) {
     if ((into[f] === null || into[f] === '') && from[f] !== null && from[f] !== '') fill[f] = from[f];
   }
   const notes = [into.notes, from.notes].filter(Boolean).join('\n---\n') || null;
