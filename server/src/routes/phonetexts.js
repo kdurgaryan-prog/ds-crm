@@ -7,7 +7,7 @@ import { requirePerm } from './auth.js';
 import { parse, badRequest, notFound, AppError } from '../lib/http.js';
 import { buildContactQuery } from './contacts.js';
 import { getSettings } from '../services/settings.js';
-import { withinCampaignHours, classifyKeyword } from '../services/compliance.js';
+import { withinCampaignHours, classifyKeyword, timezoneFor } from '../services/compliance.js';
 import { fillTemplate } from '../services/intro.js';
 import { audit, activity } from '../services/audit.js';
 import { getContact } from '../services/contacts.js';
@@ -111,7 +111,7 @@ r.get('/batches/:id/next', requirePerm('inbox.reply'), async (req, res) => {
         counts.pending--; counts.skipped++;
         continue;
       }
-      const hours = withinCampaignHours(s.campaignHours, ct.timezone);
+      const hours = withinCampaignHours(s.campaignHours, timezoneFor(ct));
       if (!hours.ok) return { ...base, paused: `Outside sending hours: ${hours.reason}. Texts can go ${s.campaignHours.start}–${s.campaignHours.end} on weekdays, in the customer's time too.` };
       const body = fillTemplate(batch.template, ct);
       await c.query(`update phone_text_items set claimed_by = $2, claimed_at = now(), body = $3 where id = $1`, [item.id, req.ctx.userId, body]);

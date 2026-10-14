@@ -9,7 +9,7 @@ export const DEFAULT_SETTINGS = {
     checks: {},                       // { url: { ok, status, checkedAt } }
   },
   moq: { minQty: 20, rule: 'Same product type and color' },
-  campaignHours: { start: '09:00', end: '17:00', timezone: 'America/Los_Angeles', days: [1, 2, 3, 4, 5] },
+  campaignHours: { start: '09:00', end: '21:00', timezone: 'America/Los_Angeles', days: [1, 2, 3, 4, 5] },
   calls: { recordCalls: false, recordingDisclosure: 'This call may be recorded for quality.', handoffNumber: '', ringTimeoutSec: 20 },
   agents: {
     natalie: {

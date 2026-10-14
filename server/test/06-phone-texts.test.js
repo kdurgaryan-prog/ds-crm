@@ -12,7 +12,7 @@ before(async () => {
   owner = await login('owner@ds-systems.test'); sales = await login('sales@ds-systems.test'); viewer = await login('viewer@ds-systems.test');
   sent = fakeTransport();
   // Tests run at any hour: open the sending window fully.
-  await owner.patch('/settings', { campaignHours: { start: '00:00', end: '23:59', days: [1, 2, 3, 4, 5, 6, 7] } });
+  await withBiz(biz.id, c => c.query(`update businesses set settings = jsonb_set(settings, '{campaignHours}', '{"start":"00:00","end":"23:59","timezone":"America/Los_Angeles","days":[1,2,3,4,5,6,7]}') where id = $1`, [biz.id]));
 });
 after(stopServer);
 
@@ -84,10 +84,11 @@ test('a normal reply is logged on the card; the daily limit and sending hours pa
   await owner.patch('/settings', { phoneText: { dailyLimit: 1 } });
   const p = (await sales.get(`/phone-texts/batches/${batch.id}/next`)).body;
   assert.match(p.paused, /limit of 1/);
-  await owner.patch('/settings', { phoneText: { dailyLimit: 200 }, campaignHours: { start: '00:00', end: '00:01' } });
+  await owner.patch('/settings', { phoneText: { dailyLimit: 200 } });
+  await withBiz(biz.id, c => c.query(`update businesses set settings = jsonb_set(settings, '{campaignHours}', '{"start":"00:00","end":"00:01","timezone":"America/Los_Angeles","days":[1,2,3,4,5,6,7]}') where id = $1`, [biz.id]));
   const q = (await sales.get(`/phone-texts/batches/${batch.id}/next`)).body;
   assert.match(q.paused, /Outside sending hours/);
-  await owner.patch('/settings', { campaignHours: { start: '00:00', end: '23:59' } });
+  await withBiz(biz.id, c => c.query(`update businesses set settings = jsonb_set(settings, '{campaignHours}', '{"start":"00:00","end":"23:59","timezone":"America/Los_Angeles","days":[1,2,3,4,5,6,7]}') where id = $1`, [biz.id]));
 });
 
 test('phone-list template must keep the opt-out line; businesses never see each other\'s lists', async () => {
@@ -100,4 +101,19 @@ test('phone-list template must keep the opt-out line; businesses never see each 
   assert.equal((await o.get(`/phone-texts/batches/${mine.id}/next`)).status, 404);
   const rows = await withBiz(other.id, c => c.query('select count(*)::int n from phone_text_items'));
   assert.equal(rows.rows[0].n, 0);
+});
+
+test('quiet hours: sending window must stay within 08:00-21:00; area codes give the customer\'s time zone', async () => {
+  assert.equal((await owner.patch('/settings', { campaignHours: { start: '09:00', end: '21:30' } })).status, 400);
+  assert.equal((await owner.patch('/settings', { campaignHours: { start: '07:30', end: '17:00' } })).status, 400);
+  assert.equal((await owner.patch('/settings', { campaignHours: { start: '09:00', end: '21:00' } })).status, 200);
+  const { timezoneFor, withinCampaignHours } = await import('../src/services/compliance.js');
+  assert.equal(timezoneFor({ phone_e164: '+17475550100' }), 'America/Los_Angeles');
+  assert.equal(timezoneFor({ phone_e164: '+16025550100' }), 'America/Phoenix');
+  assert.equal(timezoneFor({ phone_e164: '+12125550100' }), null);                 // New York: not guessed
+  assert.equal(timezoneFor({ phone_e164: '+12125550100', timezone: 'America/New_York' }), 'America/New_York');
+  const H = { start: '09:00', end: '21:00', timezone: 'America/Los_Angeles', days: [1, 2, 3, 4, 5] };
+  const tue1946 = new Date('2026-10-14T02:46:00Z');                                 // Tue 19:46 in Los Angeles
+  assert.equal(withinCampaignHours(H, timezoneFor({ phone_e164: '+17475550100' }), tue1946).ok, true);
+  assert.equal(withinCampaignHours(H, timezoneFor({ phone_e164: '+12125550100' }), tue1946).ok, false); // 22:46 in New York
 });

@@ -30,6 +30,24 @@ function inWindow(dt, startHHMM, endHHMM) {
   return mins >= sh * 60 + sm && mins < eh * 60 + em;
 }
 
+// Recipient time zone from a US area code, for Pacific-side states only (where DS Systems' customers are).
+// Only area codes that lie entirely in one zone are listed; where a code crosses into a later zone, the later
+// (stricter) zone is used. Anything else stays unknown and gets the all-US safe window.
+const AREA_TZ = {};
+const addTz = (tz, codes) => codes.forEach(c => { AREA_TZ[c] = tz; });
+addTz('America/Los_Angeles', [209, 213, 279, 310, 323, 341, 350, 369, 408, 415, 424, 442, 510, 530, 559, 562, 619, 626, 628, 650, 657, 661, 669, 707, 714, 747, 760, 805, 818, 820, 831, 840, 858, 909, 916, 925, 949, 951, // California
+  206, 253, 360, 425, 509, 564, // Washington
+  503, 971, // Oregon (west)
+  702, 725]); // Las Vegas
+addTz('America/Boise', [458, 541, 775]); // Oregon east / northern Nevada: partly Mountain time, so use the stricter zone
+addTz('America/Phoenix', [480, 520, 602, 623, 928]); // Arizona
+
+export function timezoneFor(contact) {
+  if (contact?.timezone && DateTime.local().setZone(contact.timezone).isValid) return contact.timezone;
+  const m = /^\+1(\d{3})/.exec(contact?.phone_e164 || '');
+  return (m && AREA_TZ[Number(m[1])]) || null;
+}
+
 // When the recipient's timezone is unknown, the send must be inside the window in every
 // continental US zone (Eastern…Pacific), which is the strictest safe choice.
 const US_ZONES = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles'];
@@ -70,7 +88,7 @@ export function checkContactAllowed({ contact, dncListed = false, purpose, chann
       // AI-generated voice is treated as an artificial voice: prior express written consent is required.
       if (aiVoice && contact.call_marketing !== 'express_written') reasons.push('AI voice calls need written consent on file');
     }
-    const h = withinCampaignHours(hours, contact.timezone, now);
+    const h = withinCampaignHours(hours, timezoneFor(contact), now);
     if (!h.ok) reasons.push(h.reason);
   }
   return { allowed: reasons.length === 0, reasons };

@@ -65,8 +65,8 @@ function General() {
       <section className="panel"><h2>Campaign hours</h2>
         <p className="muted" style={{ marginTop: -6 }}>Marketing texts and calls only go out inside these hours, and inside the customer's own local hours.</p>
         <div className="grid2">
-          <Field label="From"><input className="in" type="time" disabled={!w} value={f.campaignHours.start} onChange={e => set('campaignHours.start', e.target.value)} /></Field>
-          <Field label="Until"><input className="in" type="time" disabled={!w} value={f.campaignHours.end} onChange={e => set('campaignHours.end', e.target.value)} /></Field>
+          <Field label="From"><input className="in" type="time" min="08:00" max="21:00" disabled={!w} value={f.campaignHours.start} onChange={e => set('campaignHours.start', e.target.value)} /></Field>
+          <Field label="Until"><input className="in" type="time" min="08:00" max="21:00" disabled={!w} value={f.campaignHours.end} onChange={e => set('campaignHours.end', e.target.value)} /></Field>
           <Field label="Time zone"><select className="in" disabled={!w} value={f.campaignHours.timezone} onChange={e => set('campaignHours.timezone', e.target.value)}>{['America/Los_Angeles', 'America/Denver', 'America/Chicago', 'America/New_York'].map(z => <option key={z}>{z}</option>)}</select></Field>
         </div>
         <div className="row" style={{ marginTop: 8 }}>{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d, i) => <label key={d} className="row"><input type="checkbox" disabled={!w} checked={f.campaignHours.days.includes(i + 1)} onChange={e => set('campaignHours.days', e.target.checked ? [...f.campaignHours.days, i + 1].sort() : f.campaignHours.days.filter(x => x !== i + 1))} />{d}</label>)}</div>

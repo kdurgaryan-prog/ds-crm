@@ -52,6 +52,9 @@ r.patch('/', requirePerm('settings.write'), async (req, res) => {
   }
   if (b.sms?.keywords) b.sms.keywords = [...new Set(b.sms.keywords.map(k => k.toUpperCase()))].filter(k => !['STOP', 'START', 'HELP', 'UNSTOP', 'CANCEL', 'END', 'QUIT', 'UNSUBSCRIBE', 'YES', 'INFO'].includes(k));
   if (b.campaignHours && b.campaignHours.start && b.campaignHours.end && b.campaignHours.start >= b.campaignHours.end) throw badRequest('Start time must be before end time.');
+  // Federal quiet hours: no marketing calls or texts before 8:00 or after 21:00 in the recipient's local time.
+  if (b.campaignHours?.start && b.campaignHours.start < '08:00') throw badRequest('Sending cannot start before 08:00 (US quiet hours).');
+  if (b.campaignHours?.end && b.campaignHours.end > '21:00') throw badRequest('Sending must stop by 21:00 (US quiet hours).');
   const out = await withBiz(req.ctx.businessId, async c => {
     const before = await getSettings(c, req.ctx.businessId);
     const s = await patchSettings(c, req.ctx.businessId, b);
