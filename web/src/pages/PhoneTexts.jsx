@@ -6,7 +6,10 @@ import { useLoad, LoadError, Pill, Icon, useAction, useToast, Empty, Modal, Fiel
 import { phone, dateShort } from '../lib/format.js';
 import { useSession } from '../lib/session.jsx';
 
-export const smsLink = (to, body) => `sms:${to}?&body=${encodeURIComponent(body)}`;
+// iPhone/iPad Messages needs "&body="; Android and Windows Phone Link need the standard "?body=".
+// The "?&body=" mix made Phone Link drop the recipient and open the last conversation instead.
+const isApple = () => /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent) && !/Windows/.test(navigator.userAgent);
+export const smsLink = (to, body) => (isApple() ? `sms:${to}&body=${encodeURIComponent(body)}` : `sms:${to}?body=${encodeURIComponent(body)}`);
 
 export default function PhoneTexts() {
   const { id } = useParams();
