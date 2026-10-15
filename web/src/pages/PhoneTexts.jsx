@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { get, post } from '../lib/api.js';
 import { useLoad, LoadError, Pill, Icon, useAction, useToast, Empty, Modal, Field } from '../components/ui.jsx';
 import { phone, dateShort } from '../lib/format.js';
+import { useSession } from '../lib/session.jsx';
 
 export const smsLink = (to, body) => `sms:${to}?&body=${encodeURIComponent(body)}`;
 
@@ -59,6 +60,7 @@ function WorkList({ id }) {
   const [busy, setBusy] = useState(false);
   const [opened, setOpened] = useState(false);
   const [skipOpen, setSkipOpen] = useState(false);
+  const [last, setLast] = useState(null);
   const sentBtn = useRef(null);
   const load = useCallback(async () => {
     setError(null); setOpened(false);
@@ -67,8 +69,10 @@ function WorkList({ id }) {
   useEffect(() => { load(); }, [load]);
   const act = async (fn, msg) => { setBusy(true); try { await fn(); if (msg) toast.ok(msg); await load(); } catch (e) { toast.error(e); } finally { setBusy(false); } };
   const item = state?.item;
-  const markSent = () => item && !busy && act(() => post(`/phone-texts/items/${item.id}/sent`));
-  const skip = reason => { setSkipOpen(false); act(() => post(`/phone-texts/items/${item.id}/skip`, { reason }), 'Skipped'); };
+  const who = it => it.contact.name || it.contact.company || 'this person';
+  const markSent = () => { if (!item || busy) return; const it = item; act(async () => { await post(`/phone-texts/items/${it.id}/sent`); setLast({ id: it.id, name: who(it), what: 'marked as sent' }); }); };
+  const skip = reason => { setSkipOpen(false); const it = item; act(async () => { await post(`/phone-texts/items/${it.id}/skip`, { reason }); setLast({ id: it.id, name: who(it), what: 'skipped' }); }, 'Skipped'); };
+  const undo = () => { const l = last; act(async () => { await post(`/phone-texts/items/${l.id}/undo`); setLast(null); }, `${l.name} is back in the list`); };
   useEffect(() => {
     const k = e => {
       if (/input|textarea|select/i.test(document.activeElement?.tagName) || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -90,6 +94,7 @@ function WorkList({ id }) {
         <span className="spacer" />
         <Pill tone={state.sentToday >= state.dailyLimit ? 'red' : ''}>Today {state.sentToday} / {state.dailyLimit}</Pill>
       </div>
+      {last && <div className="notice" style={{ maxWidth: 640, marginBottom: 10 }}>{last.name} {last.what}. <button className="btn small" disabled={busy} onClick={undo}>Undo — it did not go out</button></div>}
       {state.paused && <div className="notice warn">{state.paused}</div>}
       {state.waiting && <div className="notice">{state.waiting} <button className="btn small" onClick={load}>Check again</button></div>}
       {state.done && <Empty title="This list is finished" action={<Link className="btn primary" to="/phone-texts">Back to lists</Link>}>{c.sent} texts sent, {c.skipped} skipped. Replies come to your phone — when someone answers, open their card and press <b>Log reply</b>.</Empty>}
@@ -132,16 +137,20 @@ export function NewPhoneList({ filters, ids, count, defaultName, onClose }) {
   const [name, setName] = useState(defaultName || '');
   const [res, setRes] = useState(null);
   const [run, busy] = useAction();
-  const create = () => run(() => post('/phone-texts/batches', { name: name || undefined, ...(ids ? { ids } : { filters }) })).then(r => {
+  const { can } = useSession();
+  const create = (allowRepeat = false) => run(() => post('/phone-texts/batches', { name: name || undefined, ...(ids ? { ids } : { filters }), ...(allowRepeat ? { allowRepeat: true } : {}) })).then(r => {
     if (r.batch && ids?.length === 1) nav(`/phone-texts/${r.batch.id}`); else setRes(r);
   }).catch(() => {});
   const left = res ? Object.entries(res.excluded || {}) : [];
+  const repeatable = left.filter(([k]) => k.startsWith('Already texted')).reduce((a, [, n]) => a + n, 0);
   return (
     <Modal title="Text from my phone" onClose={onClose} footer={res ? <>
       <button className="btn" onClick={onClose}>Close</button>
+      {!res.batch && res.openListId && <button className="btn primary" onClick={() => nav(`/phone-texts/${res.openListId}`)}>Open that list</button>}
+      {!res.batch && !res.openListId && repeatable > 0 && can('settings.write') && <button className="btn primary" disabled={busy} onClick={() => create(true)}>Text them again anyway</button>}
       {res.batch && <button className="btn primary" onClick={() => nav(`/phone-texts/${res.batch.id}`)}>Start texting</button>}</> : <>
       <button className="btn" onClick={onClose}>Cancel</button>
-      <button className="btn primary" disabled={busy} onClick={create}>Make the list</button></>}>
+      <button className="btn primary" disabled={busy} onClick={() => create()}>Make the list</button></>}>
       {!res ? <>
         <p style={{ marginTop: 0 }}>{ids?.length === 1 ? 'Text this customer from your own phone.' : <>Make a phone list from the <b>{count?.toLocaleString()}</b> customers shown with your current filters.</>} The text comes from <i>Settings → "Text from my phone" message</i>.</p>
         {!(ids?.length === 1) && <Field label="List name" hint="For example: Contractors – Los Angeles"><input className="in" value={name} onChange={e => setName(e.target.value)} maxLength={120} autoFocus /></Field>}
@@ -149,6 +158,7 @@ export function NewPhoneList({ filters, ids, count, defaultName, onClose }) {
       </> : <>
         <div className={`notice ${res.added ? 'good' : 'warn'}`}>{res.added ? <><b>{res.added}</b> people are ready to text.</> : 'Nobody in this selection can be texted right now.'}</div>
         {left.length > 0 && <div className="small" style={{ marginTop: 8 }}>Left out: {left.map(([k, n]) => `${k} (${n})`).join(', ')}</div>}
+        {!res.batch && repeatable > 0 && <div className="small muted" style={{ marginTop: 8 }}>{can('settings.write') ? 'Text them again anyway makes a list with these people. People who asked not to be texted and Do Not Call numbers stay out.' : 'Ask the owner or an admin to text these people again before the waiting period ends.'}</div>}
       </>}
     </Modal>
   );

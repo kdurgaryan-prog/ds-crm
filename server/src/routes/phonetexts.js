@@ -26,10 +26,10 @@ export function phoneTextBlock(contact, { dncListed = false, lastSentAt = null, 
   return null;
 }
 
-async function blockFor(c, contact, s) {
+async function blockFor(c, contact, s, { allowRepeat = false } = {}) {
   const dncListed = contact.phone_e164 ? (await c.query('select 1 from dnc_numbers where phone_e164 = $1', [contact.phone_e164])).rowCount > 0 : false;
   const last = (await c.query(`select max(done_at) t from phone_text_items where contact_id = $1 and status = 'sent'`, [contact.id])).rows[0].t;
-  return phoneTextBlock(contact, { dncListed, lastSentAt: last, repeatDays: s.phoneText.repeatDays });
+  return phoneTextBlock(contact, { dncListed, lastSentAt: allowRepeat ? null : last, repeatDays: s.phoneText.repeatDays });
 }
 
 async function sentToday(c, tz) {
@@ -42,12 +42,14 @@ const batchInput = z.object({
   filters: z.record(z.string(), z.any()).optional(),
   ids: z.array(z.string().uuid()).max(MAX_BATCH).optional(),
   template: z.string().min(10).max(640).optional(),
+  allowRepeat: z.boolean().optional(),   // owner/admin: text again before the waiting period ends (never overrides opt-out or Do Not Call)
 });
 
 r.post('/batches', requirePerm('inbox.reply'), async (req, res) => {
   const b = parse(batchInput, req.body);
   if (!b.ids?.length && !b.filters) throw badRequest('Choose customers first.');
   if (b.template && !/stop/i.test(b.template)) throw badRequest('The text must tell people how to opt out (for example "Reply STOP and we won\'t text again").');
+  if (b.allowRepeat && !['owner', 'admin'].includes(req.ctx.role)) throw new AppError(403, 'Only the owner or an admin can text someone again this soon.');
   const out = await withBiz(req.ctx.businessId, async c => {
     const s = await getSettings(c, req.ctx.businessId);
     const { where, vals, order } = buildContactQuery(b.ids?.length ? { ids: b.ids } : { ...b.filters, page: undefined });
@@ -55,22 +57,25 @@ r.post('/batches', requirePerm('inbox.reply'), async (req, res) => {
     if (rows.length > MAX_BATCH) throw badRequest(`This list has more than ${MAX_BATCH.toLocaleString()} customers.`, { hint: 'Narrow it down with filters (for example by industry or source).' });
     if (!rows.length) throw badRequest('No customers match this list.');
     // People already waiting in another open list are not added twice.
-    const queued = new Set((await c.query(`select i.contact_id from phone_text_items i join phone_text_batches b on b.id = i.batch_id
-      where i.status = 'pending' and b.closed_at is null and i.contact_id = any($1)`, [rows.map(x => x.id)])).rows.map(x => x.contact_id));
+    const queuedRows = (await c.query(`select i.contact_id, i.batch_id from phone_text_items i join phone_text_batches b on b.id = i.batch_id
+      where i.status = 'pending' and b.closed_at is null and i.contact_id = any($1)`, [rows.map(x => x.id)])).rows;
+    const queued = new Set(queuedRows.map(x => x.contact_id));
+    const openLists = [...new Set(queuedRows.map(x => x.batch_id))];
     const excluded = {}; const ok = [];
     for (const ct of rows) {
-      const why = queued.has(ct.id) ? 'Already in another open list' : await blockFor(c, ct, s);
+      const why = queued.has(ct.id) ? 'Already in another open list' : await blockFor(c, ct, s, { allowRepeat: b.allowRepeat });
       if (why) excluded[why] = (excluded[why] || 0) + 1; else ok.push(ct);
     }
-    if (!ok.length) return { batch: null, added: 0, excluded };
+    if (!ok.length) return { batch: null, added: 0, excluded, openListId: openLists.length === 1 ? openLists[0] : undefined };
     const name = b.name || `List of ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: s.timezone })}`;
-    const batch = (await c.query(`insert into phone_text_batches (business_id, name, template, filters, excluded, created_by) values ($1,$2,$3,$4,$5,$6) returning *`,
-      [req.ctx.businessId, name, b.template || s.phoneText.template, b.ids?.length ? { ids: b.ids.length } : b.filters, excluded, req.ctx.userId])).rows[0];
+    const batch = (await c.query(`insert into phone_text_batches (business_id, name, template, filters, excluded, created_by, allow_repeat) values ($1,$2,$3,$4,$5,$6,$7) returning *`,
+      [req.ctx.businessId, name, b.template || s.phoneText.template, b.ids?.length ? { ids: b.ids.length } : b.filters, excluded, req.ctx.userId, !!b.allowRepeat])).rows[0];
     for (const [i, ct] of ok.entries()) {
       await c.query(`insert into phone_text_items (business_id, batch_id, contact_id, position) values ($1,$2,$3,$4)`, [req.ctx.businessId, batch.id, ct.id, i + 1]);
     }
     await audit(c, req.ctx, 'phone_texts.create', 'phone_text_batch', batch.id, null, { name, added: ok.length, excluded });
-    return { batch, added: ok.length, excluded };
+    if (b.allowRepeat) await audit(c, req.ctx, 'phone_texts.allow_repeat', 'phone_text_batch', batch.id, null, { added: ok.length });
+    return { batch, added: ok.length, excluded, openListId: openLists.length === 1 ? openLists[0] : undefined };
   });
   res.status(out.batch ? 201 : 200).json(out);
 });
@@ -105,7 +110,7 @@ r.get('/batches/:id/next', requirePerm('inbox.reply'), async (req, res) => {
         order by (claimed_by = $2) desc nulls last, position limit 1 for update skip locked`, [batch.id, req.ctx.userId, CLAIM_MINUTES])).rows[0];
       if (!item) return { ...base, done: counts.pending === 0, waiting: counts.pending > 0 ? 'The remaining people are open on a teammate\'s screen.' : undefined };
       const ct = (await c.query('select * from contacts where id = $1', [item.contact_id])).rows[0];
-      const why = await blockFor(c, ct, s);
+      const why = await blockFor(c, ct, s, { allowRepeat: batch.allow_repeat });
       if (why) {
         await c.query(`update phone_text_items set status = 'blocked', detail = $2, done_at = now() where id = $1`, [item.id, why]);
         counts.pending--; counts.skipped++;
@@ -148,6 +153,20 @@ r.post('/items/:id/sent', requirePerm('inbox.reply'), async (req, res) => {
     return { ok: true };
   });
   res.json(out);
+});
+
+/** "It did not actually go out": put the person back so they can be texted again from this list. */
+r.post('/items/:id/undo', requirePerm('inbox.reply'), async (req, res) => {
+  await withBiz(req.ctx.businessId, async c => {
+    const it = await loadItem(c, req.params.id);
+    if (it.status === 'pending') return;
+    if (it.status === 'blocked') throw badRequest(`This person cannot be texted: ${it.detail}.`);
+    if (it.done_by !== req.ctx.userId && !['owner', 'admin'].includes(req.ctx.role)) throw badRequest('Only the person who marked it can undo it.');
+    if (new Date(it.done_at) < Date.now() - 24 * 3600_000) throw badRequest('This was marked more than a day ago and cannot be undone.');
+    await c.query(`update phone_text_items set status = 'pending', detail = null, done_by = null, done_at = null, claimed_by = $2, claimed_at = now() where id = $1`, [it.id, req.ctx.userId]);
+    if (it.status === 'sent') await activity(c, req.ctx, it.contact_id, 'message', `Marked as not sent (${req.ctx.name}): the text did not go out from the phone.`, { refId: it.id, data: { channel: 'staff_phone' } });
+  });
+  res.json({ ok: true });
 });
 
 r.post('/items/:id/skip', requirePerm('inbox.reply'), async (req, res) => {

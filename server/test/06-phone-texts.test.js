@@ -163,3 +163,28 @@ test('import the owner\'s Excel layout as is (N, License #, Business Name, Conta
   const fd = new FormData(); fd.append('file', new Blob([tsv], { type: 'text/plain' }), 'list.csv');
   assert.equal((await owner.post('/contacts/import?commit=1', fd)).body.created, 1, 'tab-separated text works too');
 });
+
+test('texting again: owner can override the waiting period (never opt-out/DNC); undo puts a person back; open-list hint', async () => {
+  const t1 = await mk('Test Self', '+17475550901');
+  const t2 = await mk('Test Opted', '+17475550902');
+  const first = (await owner.post('/phone-texts/batches', { name: 'self test', ids: [t1.id, t2.id] })).body;
+  // making it again while it is open points to the open list
+  const dup = (await owner.post('/phone-texts/batches', { ids: [t1.id] })).body;
+  assert.equal(dup.openListId, first.batch.id);
+  for (let i = 0; i < 2; i++) { const n = (await owner.get(`/phone-texts/batches/${first.batch.id}/next`)).body; await owner.post(`/phone-texts/items/${n.item.id}/sent`); }
+  await owner.patch(`/contacts/${t2.id}`, { sms_marketing: 'opted_out' });
+  const again = (await owner.post('/phone-texts/batches', { ids: [t1.id, t2.id] })).body;
+  assert.equal(again.added, 0); assert.equal(again.excluded['Already texted in the last 30 days'], 1);
+  assert.equal((await sales.post('/phone-texts/batches', { ids: [t1.id], allowRepeat: true })).status, 403, 'sales cannot override');
+  const forced = (await owner.post('/phone-texts/batches', { name: 'self test 2', ids: [t1.id, t2.id], allowRepeat: true })).body;
+  assert.equal(forced.added, 1, 'opted-out person stays out even with the override');
+  const n = (await owner.get(`/phone-texts/batches/${forced.batch.id}/next`)).body;
+  assert.equal(n.item.contact.id, t1.id);
+  await owner.post(`/phone-texts/items/${n.item.id}/sent`);
+  // "it did not go out": undo returns the person to the list
+  assert.equal((await sales.post(`/phone-texts/items/${n.item.id}/undo`)).status, 400, 'only the person who marked it (or owner/admin)');
+  assert.equal((await owner.post(`/phone-texts/items/${n.item.id}/undo`)).status, 200);
+  const back = (await owner.get(`/phone-texts/batches/${forced.batch.id}/next`)).body;
+  assert.equal(back.item.id, n.item.id);
+  assert.ok((await owner.get(`/contacts/${t1.id}`)).body.timeline.some(t => /Marked as not sent/.test(t.summary)));
+});
