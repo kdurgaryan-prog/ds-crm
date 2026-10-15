@@ -43,6 +43,7 @@ function CustomerList() {
     { key: 'company', label: 'Company', width: 190 },
     { key: 'phone', label: 'Phone', width: 140, sortable: false, render: r => <span className="nowrap">{phone(r.phone_e164)}{r.dnc ? <> <Pill tone="red">DNC</Pill></> : r.opted_out_at ? <> <Pill tone="red">Opted out</Pill></> : null}</span> },
     { key: 'email', label: 'Email', width: 220, sortable: false, render: r => r.email ? <a href={`mailto:${r.email}`} onClick={e => e.stopPropagation()}>{r.email}</a> : <span className="muted">—</span> },
+    { key: 'texted', label: 'Texted', width: 120, sortable: false, render: r => r.texted_count ? <span className="nowrap" title={`${r.texted_count}× from a phone`}>{dateShort(r.texted_at)}{r.texted_count > 1 ? ` (${r.texted_count}×)` : ''}</span> : <span className="muted">—</span> },
     { key: 'status', label: 'Status', width: 120, render: r => <Pill tone={STATUS_TONE[r.status]}>{r.status}</Pill> },
     { key: 'source', label: 'Source', width: 120 },
     { key: 'owner', label: 'Responsible', width: 140, sortable: false, render: r => r.owner_name || <span className="muted">Unassigned</span> },

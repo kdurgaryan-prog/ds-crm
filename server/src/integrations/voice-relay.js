@@ -210,7 +210,8 @@ registerHandler('call.post_sms', async job => withBiz(job.business_id, async c =
   const contact = await getContact(c, call.contact_id);
   const sms = await getChannel(c, 'sms');
   if (sms.status !== 'connected') { await c.query(`update calls set post_call_sms = 'blocked: SMS not connected' where id = $1`, [call.id]); return {}; }
-  const chk = checkContactAllowed({ contact, purpose: 'conversational', channel: 'sms', hours: s.campaignHours });
+  // After a call the customer made to us it is a reply; after a call WE placed it is marketing: consent and hours apply.
+  const chk = checkContactAllowed({ contact, purpose: call.direction === 'inbound' ? 'conversational' : 'marketing', channel: 'sms', hours: s.campaignHours });
   if (!contact.phone_e164 || !chk.allowed) { await c.query(`update calls set post_call_sms = $2 where id = $1`, [call.id, `blocked: ${chk.reasons.join('; ') || 'no phone'}`]); return {}; }
   const conv = await upsertConversation(c, { businessId: job.business_id }, { contactId: contact.id, channel: 'sms', thread: contact.phone_e164 });
   const text = p.text.replaceAll('{quoteLink}', s.links.quotePage).replaceAll('{name}', contact.name?.split(' ')[0] || 'there');

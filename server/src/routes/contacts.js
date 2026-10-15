@@ -27,7 +27,7 @@ export async function readImportFile(file) {
     if (!ws) return [];
     let header = null; const out = [];
     ws.eachRow({ includeEmpty: false }, row => {
-      const cells = []; for (let i = 1; i <= ws.columnCount; i++) cells.push(String(row.getCell(i).text ?? '').trim());
+      const cells = []; for (let i = 1; i <= ws.columnCount; i++) { const cell = row.getCell(i); cells.push(cell.value instanceof Date ? cell.value.toISOString().slice(0, 10) : String(cell.text ?? '').trim()); }
       if (!header) { header = cells.map(normHeader); return; }
       if (cells.every(v => !v)) return;
       out.push(Object.fromEntries(header.map((h, i) => [h, cells[i] || ''])));
@@ -45,7 +45,8 @@ const normDate = v => {
   if (m) { const y = m[3].length === 2 ? `20${m[3]}` : m[3]; return `${y}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`; }
   return null;
 };
-const normZip = v => { const m = /^\s*(\d{5})(?:-?(\d{4}))?/.exec(String(v || '').padStart(5, '0')); return v ? (m ? m[1] + (m[2] ? `-${m[2]}` : '') : null) : null; };
+const cleanEmail = v => { const t = String(v || '').trim().toLowerCase(); return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(t) ? t : null; };
+const normZip = v => { const m = /^(\d{5})(?:-?(\d{4}))?/.exec(String(v || '').trim().replace(/\.0+$/, '').padStart(5, '0')); return v ? (m ? m[1] + (m[2] ? `-${m[2]}` : '') : null) : null; };
 const contactInput = z.object({
   name: z.string().max(160).nullish(), company: z.string().max(160).nullish(), phone: z.string().max(40).nullish(),
   email: z.string().email('Enter a valid email').max(200).nullish().or(z.literal('')),
@@ -110,7 +111,9 @@ r.get('/', requirePerm('contacts.read'), async (req, res) => {
     const rows = (await c.query(
       `select c.id, c.lead_no, c.name, c.company, c.phone_e164, c.email, c.socials, c.source, c.status, c.product_type, c.quantity, c.decoration,
               c.colors, c.sizes, c.deadline, c.industry, c.title, c.address, c.city, c.county, c.zip, c.license_no, c.business_type, c.industry_type, c.custom, c.created_at, c.last_activity_at, c.dnc, c.opted_out_at, c.sms_marketing,
-              c.owner_user_id, u.name owner_name
+              c.owner_user_id, u.name owner_name,
+              (select count(*)::int from phone_text_items i where i.contact_id = c.id and i.status = 'sent') texted_count,
+              (select max(i.done_at) from phone_text_items i where i.contact_id = c.id and i.status = 'sent') texted_at
          from contacts c left join users u on u.id = c.owner_user_id
         where ${where} order by ${order} limit ${size} offset ${(page - 1) * size}`, vals)).rows;
     return { total, rows };
@@ -189,20 +192,23 @@ r.post('/import', requirePerm('contacts.import'), upload.single('file'), async (
   const teamByName = new Map((await withBiz(req.ctx.businessId, c => c.query(`select u.id, u.name from memberships m join users u on u.id = m.user_id where m.business_id = app_biz() and m.active`))).rows.map(u => [u.name.toLowerCase(), u.id]));
   const map = row => ({ name: row.name || row.full_name || row.contact_name || row.licensee || row.licensee_name || row.owner || row.owner_name || null,
     company: row.company || row.company_name || row.business_name || row.business || row.organization || null,
-    phone: row.phone || row.phone_number || row.mobile || row.business_phone || row.telephone || null, email: row.email || row.email_address || row.e_mail || null,
-    source: row.source || defaultSource, product_type: row.product_type || row.product || null, quantity: row.quantity ? Number(row.quantity) : null,
+    phone: row.phone || row.phone_number || row.mobile || row.business_phone || row.telephone || null, email: cleanEmail(row.email || row.email_address || row.e_mail),
+    source: row.source || defaultSource, product_type: row.product_type || row.product || null, quantity: row.quantity ? (Number.isFinite(parseInt(String(row.quantity).replace(/\D/g, ''), 10)) ? parseInt(String(row.quantity).replace(/\D/g, ''), 10) : null) : null,
     decoration: row.decoration || row.print_or_embroidery || null, notes: row.notes || null, industry: row.industry || null,
     deadline: normDate(row.deadline), status: STATUSES.find(x => x.toLowerCase() === String(row.status || '').trim().toLowerCase()),
     owner_user_id: teamByName.get(String(row.responsible || '').trim().toLowerCase()),
     title: row.title || row.job_title || row.position || null, address: row.address || row.street || row.street_address || row.address_1 || row.address1 || null,
     city: row.city || null, county: row.county || null, zip: normZip(row.zip || row.zip_code || row.zipcode || row.postal_code),
     license_no: row.license || row.license_number || row.license_no || row.lic || null, business_type: row.business_type || row.entity_type || null,
-    industry_type: row.industry_type || row.classification || null, other_personnel: row.other_personnel || null });
+    industry_type: row.industry_type || row.classification || null, other_personnel: row.other_personnel || null,
+    // opt-out state from a CRM export (or a hand-made list) must survive a re-import
+    sms_marketing: /^(opted_out|opted out|no|stop)$/i.test(String(row.sms_marketing || '').trim()) ? 'opted_out' : undefined,
+    dnc: /^(true|yes|1|y)$/i.test(String(row.dnc || row.do_not_call || '').trim()) ? true : undefined });
   const KNOWN = new Set(['n', 'no', 'name', 'full_name', 'contact_name', 'licensee', 'licensee_name', 'owner', 'owner_name', 'company', 'company_name', 'business_name', 'business', 'organization',
     'phone', 'phone_number', 'mobile', 'business_phone', 'telephone', 'email', 'email_address', 'e_mail', 'source', 'product_type', 'product', 'quantity', 'decoration', 'notes', 'industry',
     'title', 'job_title', 'position', 'address', 'street', 'street_address', 'address_1', 'address1', 'city', 'county', 'zip', 'zip_code', 'zipcode', 'postal_code',
     'license', 'license_number', 'license_no', 'lic', 'business_type', 'entity_type', 'industry_type', 'classification', 'other_personnel',
-    'print_or_embroidery', 'deadline', 'status', 'responsible', 'lead', 'created', 'last_activity']);
+    'print_or_embroidery', 'deadline', 'status', 'responsible', 'lead', 'created', 'last_activity', 'sms_marketing', 'dnc', 'do_not_call', 'lead_no', 'created_at', 'last_activity_at', 'opted_out_at', 'call_marketing', 'colors', 'sizes', 'employees']);
   const headers = Object.keys(rows[0] || {}).filter(Boolean);
   const report = { total: rows.length, created: 0, updated: 0, invalid: [], duplicatesFlagged: 0, source: defaultSource,
     columns: { used: headers.filter(h => KNOWN.has(h) && !['n', 'no'].includes(h)), ignored: headers.filter(h => !KNOWN.has(h)) } };
@@ -222,6 +228,8 @@ r.post('/import', requirePerm('contacts.import'), upload.single('file'), async (
         const out = await createContact(c, req.ctx, { ...rest, phone_raw: phone || undefined });
         if (out.existing) {
           const patch = Object.fromEntries(Object.entries(rest).filter(([k, v]) => v && !out.contact[k] && k !== 'source'));
+          if (rest.sms_marketing === 'opted_out') patch.sms_marketing = 'opted_out';
+          if (rest.dnc === true) patch.dnc = true;
           if (Object.keys(patch).length) await updateContact(c, req.ctx, out.contact.id, patch);
           report.updated++;
         } else report.created++;
@@ -279,6 +287,8 @@ r.delete('/:id', requirePerm('contacts.delete'), async (req, res) => {
   await withBiz(req.ctx.businessId, async c => {
     const before = await getContact(c, req.params.id);
     await c.query(`update contacts set deleted_at = now() where id = $1`, [before.id]);
+    // The phone/channel IDs stop pointing at a deleted record, so the next message from that number makes one new lead, not several.
+    await c.query(`delete from contact_identities where contact_id = $1`, [before.id]);
     await audit(c, req.ctx, 'contact.delete', 'contact', before.id, { lead_no: before.lead_no, name: before.name }, null);
   });
   res.json({ ok: true, undo: `/api/contacts/${req.params.id}/restore` });
@@ -286,8 +296,10 @@ r.delete('/:id', requirePerm('contacts.delete'), async (req, res) => {
 
 r.post('/:id/restore', requirePerm('contacts.delete'), async (req, res) => {
   await withBiz(req.ctx.businessId, async c => {
-    const n = (await c.query(`update contacts set deleted_at = null where id = $1 returning id`, [req.params.id])).rowCount;
-    if (!n) throw notFound();
+    const row = (await c.query(`update contacts set deleted_at = null where id = $1 returning *`, [req.params.id])).rows[0];
+    if (!row) throw notFound();
+    const { addIdentity } = await import('../services/contacts.js');
+    if (row.phone_e164) await addIdentity(c, req.ctx, row.id, 'phone', row.phone_e164);   // re-attach unless the number now belongs to a newer record
     await audit(c, req.ctx, 'contact.restore', 'contact', req.params.id);
   });
   res.json({ ok: true });

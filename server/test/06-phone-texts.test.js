@@ -266,3 +266,45 @@ test('import reads the CRM table column names: Print or embroidery, Deadline, St
   assert.deepEqual([c.status, c.product_type, c.quantity, c.decoration, c.deadline?.slice(0, 10), c.owner_name, c.industry_type],
     ['Contacted', 'Polo', 40, 'Embroidery', '2026-10-31', 'sales ds-systems', 'C-10 Electrical']);
 });
+
+test('audit fixes: no-name greeting, repeat check by phone after merge, Send again skips wrong numbers, deleted contact frees its number', async () => {
+  const { fillTemplate } = await import('../src/services/intro.js');
+  assert.equal(fillTemplate('Hi {first_name}, this is DS.', { name: '', company: 'X' }), 'Hi, this is DS.');
+  assert.equal(fillTemplate('Hi {first_name}, this is DS.', { name: 'Ara H', company: 'X' }), 'Hi Ara, this is DS.');
+  // repeat by phone
+  const a = await mk('Rep A', '+17475550981');
+  const l = (await owner.post('/phone-texts/batches', { name: 'rep', ids: [a.id] })).body.batch;
+  const n = (await owner.get(`/phone-texts/batches/${l.id}/next`)).body; await owner.post(`/phone-texts/items/${n.item.id}/sent`);
+  await owner.del(`/contacts/${a.id}`);
+  const a2 = await mk('Rep A again', '+17475550981');
+  assert.notEqual(a2.id, a.id, 'a deleted customer does not come back as the same record');
+  const again = (await sales.post('/phone-texts/batches', { ids: [a2.id] })).body;
+  assert.equal(again.excluded['Already texted in the last 30 days'], 1, 'same phone, new record: still inside the waiting period');
+  // Send again skips "Wrong number"
+  const w1 = await mk('Wrong One', '+17475550982'); const w2 = await mk('Right One', '+17475550983');
+  const l2 = (await owner.post('/phone-texts/batches', { name: 'wrong', ids: [w1.id, w2.id] })).body.batch;
+  const n1 = (await owner.get(`/phone-texts/batches/${l2.id}/next`)).body; await owner.post(`/phone-texts/items/${n1.item.id}/skip`, { reason: 'Wrong number' });
+  const n2 = (await owner.get(`/phone-texts/batches/${l2.id}/next`)).body; await owner.post(`/phone-texts/items/${n2.item.id}/sent`);
+  const r = (await owner.post(`/phone-texts/batches/${l2.id}/again`)).body;
+  assert.equal(r.added, 1);
+  // list shows texted info
+  const row = (await owner.get(`/contacts?q=${encodeURIComponent(n2.item.contact.name)}`)).body.rows[0];
+  assert.equal(row.texted_count, 1); assert.ok(row.texted_at);
+});
+
+test('audit fixes: import ignores placeholder emails and keeps opt-out; settings reject bad time zone and inverted hours', async () => {
+  const csv = 'Company,Phone,Email,sms_marketing,dnc\nPH One,(818) 555-0991,n/a,,\nPH Two,(818) 555-0992,n/a,,\nPH Three,(818) 555-0993,none,opted_out,\nPH Four,(818) 555-0994,,,true\n';
+  const fd = new FormData(); fd.append('file', new Blob([csv], { type: 'text/csv' }), 'ph.csv');
+  const r = await owner.post('/contacts/import?commit=1&source=PH', fd);
+  assert.equal(r.body.created, 4, JSON.stringify(r.body));
+  const rows = (await owner.get('/contacts?source=PH&size=50')).body.rows;
+  assert.ok(rows.every(x => !x.email), 'placeholder emails dropped');
+  assert.equal(rows.find(x => x.company === 'PH Three').sms_marketing, 'opted_out');
+  assert.equal(rows.find(x => x.company === 'PH Four').dnc, true);
+  const list = (await owner.post('/phone-texts/batches', { ids: rows.map(x => x.id) })).body;
+  assert.equal(list.added, 2);
+  assert.equal((await owner.patch('/settings', { campaignHours: { timezone: 'LA' } })).status, 400);
+  assert.equal((await owner.patch('/settings', { campaignHours: { start: '09:00', end: '21:00' } })).status, 200);
+  assert.equal((await owner.patch('/settings', { campaignHours: { end: '08:30' } })).status, 400, 'end before the stored start');
+  assert.equal((await owner.patch('/settings', { campaignHours: { days: [] } })).status, 400);
+});

@@ -44,7 +44,9 @@ async function currentContact(c, id) {
 
 async function blockFor(c, contact, s, { allowRepeat = false } = {}) {
   const dncListed = contact.phone_e164 ? (await c.query('select 1 from dnc_numbers where phone_e164 = $1', [contact.phone_e164])).rowCount > 0 : false;
-  const last = (await c.query(`select max(done_at) t from phone_text_items where contact_id = $1 and status = 'sent'`, [contact.id])).rows[0].t;
+  // by phone number, so a merged or re-added record cannot be texted again early
+  const last = (await c.query(`select max(i.done_at) t from phone_text_items i join contacts ct on ct.id = i.contact_id
+     where i.status = 'sent' and (i.contact_id = $1 or ct.phone_e164 = $2)`, [contact.id, contact.phone_e164 || ''])).rows[0].t;
   return phoneTextBlock(contact, { dncListed, lastSentAt: allowRepeat ? null : last, repeatDays: s.phoneText.repeatDays });
 }
 
@@ -146,7 +148,7 @@ r.get('/batches/:id/next', requirePerm('inbox.reply'), async (req, res) => {
       return { ...base, item: { id: item.id, position: item.position, body,
         contact: { id: ct.id, lead_no: ct.lead_no, name: ct.name, company: ct.company, phone_e164: ct.phone_e164, industry: ct.industry, status: ct.status } } };
     }
-    throw new AppError(500, 'Too many people in this list were not allowed to be texted. Reload to continue.');
+    return { ...base, retry: true, waiting: 'Many people in this list could not be texted and were skipped. Press Check again to continue.' };   // progress is kept
   });
   res.json(out);
 });
@@ -196,7 +198,8 @@ r.post('/items/:id/skip', requirePerm('inbox.reply'), async (req, res) => {
   const { reason } = parse(z.object({ reason: z.string().trim().min(1).max(200).default('Skipped') }), req.body || {});
   await withBiz(req.ctx.businessId, async c => {
     const it = await loadItem(c, req.params.id);
-    if (it.status !== 'pending') return;
+    if (it.status !== 'pending') throw badRequest(it.status === 'sent' ? 'This person was already marked as sent.' : 'This person is no longer waiting.');
+    if (it.claimed_by && it.claimed_by !== req.ctx.userId) throw badRequest('A teammate has this person open.');
     await c.query(`update phone_text_items set status = 'skipped', detail = $2, done_by = $3, done_at = now(), claimed_by = null where id = $1`, [it.id, reason, req.ctx.userId]);
     if (reason === 'Not a mobile number' || reason === 'Wrong number') await activity(c, req.ctx, it.contact_id, 'note', `Phone list: ${reason.toLowerCase()} (marked by ${req.ctx.name})`);
   });
@@ -214,6 +217,7 @@ r.post('/batches/:id/again', requirePerm('inbox.reply'), async (req, res) => {
     const seen = new Set(); const items = [];
     for (const r of raw) {
       if (r.status === 'blocked' && r.detail !== 'Customer removed or merged') continue;
+      if (r.status === 'skipped' && ['Not a mobile number', 'Wrong number'].includes(r.detail)) continue;   // never text those again
       const ct = await currentContact(c, r.contact_id);
       if (ct && !seen.has(ct.id)) { seen.add(ct.id); items.push({ contact_id: ct.id }); }
     }

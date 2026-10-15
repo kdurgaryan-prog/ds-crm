@@ -7,8 +7,11 @@ import { getChannel } from '../integrations/channels.js';
 export const SMS_CONFIRMATION = 'DS Systems: Thanks for texting! You will get messages about custom uniforms. Msg frequency varies. Msg & data rates may apply. Reply HELP for help, STOP to opt out.';
 
 export function fillTemplate(text, contact) {
-  const first = (contact.name || '').trim().split(/\s+/)[0] || 'there';
-  return String(text || '').replaceAll('{first_name}', first).replaceAll('{company}', contact.company || 'your company').replaceAll('{city}', contact.city || 'your area').trim();
+  const first = (contact.name || '').trim().split(/\s+/)[0];
+  let out = String(text || '');
+  // No first name on file: "Hi {first_name}," becomes "Hi," instead of "Hi there,"
+  out = first ? out.replaceAll('{first_name}', first) : out.replace(/[ \t]*\{first_name\}/g, '');
+  return out.replaceAll('{company}', contact.company || 'your company').replaceAll('{city}', contact.city || 'your area').trim();
 }
 
 /** Records consent (with source and time) without sending anything. */

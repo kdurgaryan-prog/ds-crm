@@ -51,7 +51,14 @@ r.patch('/', requirePerm('settings.write'), async (req, res) => {
     b.calls.handoffNumber = n;
   }
   if (b.sms?.keywords) b.sms.keywords = [...new Set(b.sms.keywords.map(k => k.toUpperCase()))].filter(k => !['STOP', 'START', 'HELP', 'UNSTOP', 'CANCEL', 'END', 'QUIT', 'UNSUBSCRIBE', 'YES', 'INFO'].includes(k));
-  if (b.campaignHours && b.campaignHours.start && b.campaignHours.end && b.campaignHours.start >= b.campaignHours.end) throw badRequest('Start time must be before end time.');
+  if (b.campaignHours) {
+    const { IANAZone } = await import('luxon');
+    if (b.campaignHours.timezone && !IANAZone.isValidZone(b.campaignHours.timezone)) throw badRequest('That time zone is not valid (use e.g. America/Los_Angeles).');
+    if (b.campaignHours.days && !b.campaignHours.days.length) throw badRequest('Choose at least one sending day.');
+    const cur = await withBiz(req.ctx.businessId, c => getSettings(c, req.ctx.businessId));
+    const start = b.campaignHours.start || cur.campaignHours.start, end = b.campaignHours.end || cur.campaignHours.end;
+    if (start >= end) throw badRequest('Start time must be before end time.');
+  }
   // Federal quiet hours: no marketing calls or texts before 8:00 or after 21:00 in the recipient's local time.
   if (b.campaignHours?.start && b.campaignHours.start < '08:00') throw badRequest('Sending cannot start before 08:00 (US quiet hours).');
   if (b.campaignHours?.end && b.campaignHours.end > '21:00') throw badRequest('Sending must stop by 21:00 (US quiet hours).');

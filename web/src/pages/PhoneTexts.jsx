@@ -82,7 +82,7 @@ function WorkList({ id }) {
   const undo = () => { const l = last; act(async () => { await post(`/phone-texts/items/${l.id}/undo`); setLast(null); }, `${l.name} is back in the list`); };
   useEffect(() => {
     const k = e => {
-      if (/input|textarea|select/i.test(document.activeElement?.tagName) || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (skipOpen || busy || /input|textarea|select|button|a/i.test(document.activeElement?.tagName) || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === 'Enter' && item) { e.preventDefault(); markSent(); }
     };
     document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k);
@@ -104,6 +104,7 @@ function WorkList({ id }) {
       {last && <div className="notice" style={{ maxWidth: 640, marginBottom: 10 }}>{last.name} {last.what}. <button className="btn small" disabled={busy} onClick={undo}>Undo — it did not go out</button></div>}
       {state.paused && <div className="notice warn">{state.paused}</div>}
       {state.waiting && <div className="notice">{state.waiting} <button className="btn small" onClick={load}>Check again</button></div>}
+      {state.retry && !state.item && <div className="notice warn">Press <b>Check again</b> to load the next person.</div>}
       {state.done && <Empty title="This list is finished" action={<Link className="btn primary" to="/phone-texts">Back to lists</Link>}>{c.sent} texts sent, {c.skipped} skipped. Replies come to your phone — when someone answers, open their card and press <b>Log reply</b>.</Empty>}
       {item && (
         <section className="panel" style={{ maxWidth: 640 }}>

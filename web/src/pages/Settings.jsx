@@ -201,6 +201,28 @@ function ChannelForm({ ch, onDone }) {
   );
 }
 
+// Pasted once into theme.liquid: copies each Get a Quote submission to the CRM without changing how Shopify handles it.
+const quoteSnippet = hook => `<!-- DS Systems CRM: copy of Get a Quote requests -->
+<script>
+(function(){
+  var HOOK = ${JSON.stringify(hook)};
+  function send(form){
+    try{
+      var d = {}; new FormData(form).forEach(function(v,k){ var m = /^contact\\[(.+)\\]$/.exec(k); if (m) d[m[1]] = v; });
+      if (!d.phone && !d.email) return;
+      var body = JSON.stringify(d);
+      if (!(navigator.sendBeacon && navigator.sendBeacon(HOOK, new Blob([body], {type:'text/plain'}))))
+        fetch(HOOK, {method:'POST', body: body, headers:{'content-type':'text/plain'}, keepalive:true}).catch(function(){});
+    }catch(e){}
+  }
+  document.addEventListener('submit', function(e){
+    var f = e.target; if (!f || !f.matches || !f.matches('form[data-dss-quote]')) return;
+    if (e.defaultPrevented || (f.checkValidity && !f.checkValidity())) return;
+    send(f);
+  }, true);
+})();
+</script>`;
+
 const SMS_BOX = `<label style="display:flex;gap:8px;align-items:flex-start;margin:12px 0">
   <input type="checkbox" name="contact[SMS consent]" value="Yes">
   <span>I agree to receive text messages from DS Systems about my request and offers. Msg &amp; data rates may apply. Msg frequency varies. Reply STOP to opt out, HELP for help.</span>
@@ -215,13 +237,18 @@ function Website() {
   const hook = `${data.publicUrl}/api/public/${key}/shopify-quote`;
   return (
     <div style={{ display: 'grid', gap: 14 }}>
-      <section className="panel"><h2>Your existing "Get a Quote" form</h2>
-        <p>Your theme already sends a copy of each quote request to the address set as the form's <code>data-webhook</code>. Paste this address there (Shopify → Online Store → Themes → Customize → Get a Quote, or Edit code → the form with <code>data-dss-quote</code>):</p>
-        <pre className="code">{hook}</pre>
-        <button className="btn small" onClick={() => navigator.clipboard.writeText(hook)}>Copy</button>
-        <p className="small muted">Shopify keeps emailing you as before. In the CRM each request becomes a lead with products, print locations, budget and notes, plus a follow-up task.</p>
-        <h3 style={{ margin: '14px 0 6px' }}>Add the SMS agreement box to that form</h3>
-        <p className="small">Paste this inside the form, just above the submit button. Leave it unticked by default — people must tick it themselves.</p>
+      <section className="panel"><h2>Your existing "Get a Quote" form (dssuniforms.com)</h2>
+        <p>Shopify keeps emailing you as before. This one-time snippet also sends a copy of every request to the CRM, where it becomes a lead with products, print locations, budget and notes, a thread in the Inbox and a follow-up task.</p>
+        <ol className="small" style={{ paddingLeft: 18, margin: '6px 0 10px' }}>
+          <li>Shopify admin → <b>Online Store → Themes → … → Edit code</b>.</li>
+          <li>Open <b>layout/theme.liquid</b>, find <code>&lt;/body&gt;</code> near the bottom, and paste the snippet just above it. Save.</li>
+          <li>Send yourself a test request from the Get a Quote page. It appears in <b>Inbox</b> and under <b>Leads &amp; Customers</b> within a few seconds; the channel below turns "Connected".</li>
+        </ol>
+        <pre className="code" style={{ whiteSpace: 'pre-wrap' }}>{quoteSnippet(hook)}</pre>
+        <button className="btn small" onClick={() => navigator.clipboard.writeText(quoteSnippet(hook))}>Copy snippet</button>
+        <p className="small muted">The snippet only runs on forms marked <code>data-dss-quote</code>, waits for Shopify's own validation, and never blocks the normal submission.</p>
+        <h3 style={{ margin: '14px 0 6px' }}>Optional: SMS agreement box</h3>
+        <p className="small">To let people agree to texts, paste this inside the form just above the submit button (Edit code → the section with <code>data-dss-quote</code>). Leave it unticked by default.</p>
         <pre className="code">{SMS_BOX}</pre>
         <button className="btn small" onClick={() => navigator.clipboard.writeText(SMS_BOX)}>Copy</button></section>
       <section className="panel"><h2>Website chat (Shopify)</h2>

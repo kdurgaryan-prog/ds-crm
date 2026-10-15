@@ -16,6 +16,7 @@ export async function migrate({ log = console.log } = {}) {
       const sql = fs.readFileSync(path.join(dir, file), 'utf8');
       await client.query('begin');
       try {
+        await client.query(`select set_config('app.system', 'on', true)`);   // row-level security is forced: data migrations must see every business
         await client.query(sql);
         await client.query('insert into schema_migrations (name) values ($1)', [file]);
         await client.query('commit');
