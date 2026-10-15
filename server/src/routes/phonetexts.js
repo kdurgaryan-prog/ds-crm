@@ -69,7 +69,7 @@ r.post('/batches', requirePerm('inbox.reply'), async (req, res) => {
     if (!ok.length) return { batch: null, added: 0, excluded, openListId: openLists.length === 1 ? openLists[0] : undefined };
     const name = b.name || `List of ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: s.timezone })}`;
     const batch = (await c.query(`insert into phone_text_batches (business_id, name, template, filters, excluded, created_by, allow_repeat) values ($1,$2,$3,$4,$5,$6,$7) returning *`,
-      [req.ctx.businessId, name, b.template || s.phoneText.template, b.ids?.length ? { ids: b.ids.length } : b.filters, excluded, req.ctx.userId, !!b.allowRepeat])).rows[0];
+      [req.ctx.businessId, name, b.template || null, b.ids?.length ? { ids: b.ids.length } : b.filters, excluded, req.ctx.userId, !!b.allowRepeat])).rows[0];
     for (const [i, ct] of ok.entries()) {
       await c.query(`insert into phone_text_items (business_id, batch_id, contact_id, position) values ($1,$2,$3,$4)`, [req.ctx.businessId, batch.id, ct.id, i + 1]);
     }
@@ -118,7 +118,7 @@ r.get('/batches/:id/next', requirePerm('inbox.reply'), async (req, res) => {
       }
       const hours = withinCampaignHours(s.campaignHours, timezoneFor(ct));
       if (!hours.ok) return { ...base, paused: `Outside sending hours: ${hours.reason}. Texts can go ${s.campaignHours.start}–${s.campaignHours.end} on weekdays, in the customer's time too.` };
-      const body = fillTemplate(batch.template, ct);
+      const body = fillTemplate(batch.template || s.phoneText.template, ct);
       await c.query(`update phone_text_items set claimed_by = $2, claimed_at = now(), body = $3 where id = $1`, [item.id, req.ctx.userId, body]);
       return { ...base, item: { id: item.id, position: item.position, body,
         contact: { id: ct.id, lead_no: ct.lead_no, name: ct.name, company: ct.company, phone_e164: ct.phone_e164, industry: ct.industry, status: ct.status } } };

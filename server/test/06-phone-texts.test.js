@@ -188,3 +188,12 @@ test('texting again: owner can override the waiting period (never opt-out/DNC); 
   assert.equal(back.item.id, n.item.id);
   assert.ok((await owner.get(`/contacts/${t1.id}`)).body.timeline.some(t => /Marked as not sent/.test(t.summary)));
 });
+
+test('editing the text in Settings applies to lists already made, line breaks kept', async () => {
+  const p = await mk('Paula Lines', '+17475550931');
+  const list = (await owner.post('/phone-texts/batches', { name: 'text change', ids: [p.id] })).body;
+  const tpl = 'Hi {first_name}, uniforms for {company}.\n\nFree quote: https://dssuniforms.com/pages/get-a-quote\nor call\n(747) 588-7117.\n\nReply STOP and we won\'t text again.';
+  assert.equal((await owner.patch('/settings', { phoneText: { template: tpl } })).status, 200);
+  const n = (await owner.get(`/phone-texts/batches/${list.batch.id}/next`)).body;
+  assert.equal(n.item.body, 'Hi Paula, uniforms for Paula Lines Builders.\n\nFree quote: https://dssuniforms.com/pages/get-a-quote\nor call\n(747) 588-7117.\n\nReply STOP and we won\'t text again.');
+});
