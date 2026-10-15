@@ -86,7 +86,9 @@ r.get('/batches', requirePerm('inbox.reply'), async (req, res) => {
             count(i.*)::int total,
             count(*) filter (where i.status = 'sent')::int sent,
             count(*) filter (where i.status = 'pending')::int pending,
-            count(*) filter (where i.status in ('skipped','blocked'))::int skipped
+            count(*) filter (where i.status in ('skipped','blocked'))::int skipped,
+            (select jsonb_object_agg(r.detail, r.n) from (select coalesce(x.detail, 'Skipped') detail, count(*)::int n from phone_text_items x
+               where x.batch_id = b.id and x.status in ('skipped','blocked') group by 1) r) skip_reasons
        from phone_text_batches b left join phone_text_items i on i.batch_id = b.id left join users u on u.id = b.created_by
       group by b.id, u.name order by b.closed_at nulls first, b.created_at desc limit 100`)).rows);
   res.json(rows);
@@ -188,7 +190,10 @@ r.post('/batches/:id/again', requirePerm('inbox.reply'), async (req, res) => {
     const old = (await c.query('select * from phone_text_batches where id = $1', [req.params.id])).rows[0];
     if (!old) throw notFound('List not found.');
     const items = (await c.query(`select contact_id from phone_text_items where batch_id = $1 and status <> 'blocked' order by position`, [old.id])).rows;
-    if (!items.length) throw badRequest('Nobody in this list can be texted.');
+    if (!items.length) {
+      const why = (await c.query(`select coalesce(detail, 'Skipped') d, count(*)::int n from phone_text_items where batch_id = $1 group by 1`, [old.id])).rows;
+      throw badRequest('Nobody in this list can be texted.', { hint: why.map(x => `${x.d} (${x.n})`).join(', ') });
+    }
     const pendingElsewhere = (await c.query(`select count(*)::int n from phone_text_items i join phone_text_batches b on b.id = i.batch_id
       where i.status = 'pending' and b.closed_at is null and b.id <> $1 and i.contact_id = any($2)`, [old.id, items.map(x => x.contact_id)])).rows[0].n;
     if (pendingElsewhere) throw badRequest(`${pendingElsewhere} of these people are waiting in another open list.`, { hint: 'Finish or close that list first.' });

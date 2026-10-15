@@ -39,7 +39,7 @@ function Lists() {
               <tr key={b.id}>
                 <td><b>{b.name}</b>{b.created_by_name && <div className="small muted">by {b.created_by_name}</div>}</td>
                 <td className="nowrap">{dateShort(b.created_at)}</td>
-                <td className="nowrap"><Progress b={b} /> {b.sent} sent{b.skipped ? `, ${b.skipped} skipped` : ''} of {b.total}</td>
+                <td><span className="nowrap"><Progress b={b} /> {b.sent} sent{b.skipped ? `, ${b.skipped} skipped` : ''} of {b.total}</span>{b.skip_reasons && <div className="small muted">Skipped: {Object.entries(b.skip_reasons).map(([k, n]) => `${k} (${n})`).join(', ')}</div>}</td>
                 <td className="small" title={Object.entries(b.excluded || {}).map(([k, n]) => `${k}: ${n}`).join('\n')}>{left ? `${left} people` : '—'}</td>
                 <td className="nowrap" style={{ textAlign: 'right' }}>
                   {!b.closed_at && b.pending > 0 ? <>
