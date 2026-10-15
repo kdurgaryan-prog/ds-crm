@@ -228,8 +228,8 @@ r.post('/batches/:id/again', requirePerm('inbox.reply'), async (req, res) => {
     const names = (await c.query(`select name from phone_text_batches where name = $1 or left(name, length($1) + 2) = $1 || ' ('`, [base])).rows.map(x => x.name);
     const n = names.filter(x => x === base || /^ \(\d+\)$/.test(x.slice(base.length))).length;
     const name = `${base} (${n + 1})`;
-    const batch = (await c.query(`insert into phone_text_batches (business_id, name, template, filters, excluded, created_by, allow_repeat) values ($1,$2,$3,$4,'{}',$5,true) returning *`,
-      [req.ctx.businessId, name, old.template, { againOf: old.id }, req.ctx.userId])).rows[0];
+    const batch = (await c.query(`insert into phone_text_batches (business_id, name, template, filters, excluded, created_by, allow_repeat) values ($1,$2,null,$3,'{}',$4,true) returning *`,
+      [req.ctx.businessId, name, { againOf: old.id }, req.ctx.userId])).rows[0];
     for (const [i, it] of items.entries()) await c.query(`insert into phone_text_items (business_id, batch_id, contact_id, position) values ($1,$2,$3,$4)`, [req.ctx.businessId, batch.id, it.contact_id, i + 1]);
     await c.query(`update phone_text_batches set closed_at = coalesce(closed_at, now()) where id = $1`, [old.id]);
     await audit(c, req.ctx, 'phone_texts.again', 'phone_text_batch', batch.id, null, { from: old.id, added: items.length });

@@ -71,6 +71,7 @@ export function createApp() {
     res.type(f.mime || 'application/octet-stream').sendFile(storagePath(f.storage_key));
   });
 
+  app.use('/api', (_req, res, next) => { res.set('cache-control', 'no-store'); next(); });   // never show an old answer from the browser cache
   app.use('/api', express.json({ limit: '2mb' }));
   app.use('/api/auth', csrfGuard, authRoutes);
   const api = express.Router();
@@ -102,8 +103,9 @@ export function createApp() {
 
   // web app
   if (fs.existsSync(webDist)) {
-    app.use(express.static(webDist, { index: false, maxAge: '1h', setHeaders: (res, p) => { if (p.includes('/assets/')) res.set('cache-control', 'public, max-age=31536000, immutable'); } }));
-    app.get(/^\/(?!api|webhooks|media|ws).*/, (_req, res) => res.sendFile(path.join(webDist, 'index.html')));
+    app.use(express.static(webDist, { index: false, maxAge: '1h', setHeaders: (res, p) => { if (p.includes('/assets/')) res.set('cache-control', 'public, max-age=31536000, immutable'); else if (p.endsWith('.html')) res.set('cache-control', 'no-cache'); } }));
+    // index.html is never cached, so a new version of the CRM loads right after an update
+    app.get(/^\/(?!api|webhooks|media|ws).*/, (_req, res) => res.set('cache-control', 'no-cache').sendFile(path.join(webDist, 'index.html')));
   }
 
   app.use(errorHandler);
