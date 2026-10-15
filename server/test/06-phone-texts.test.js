@@ -197,3 +197,21 @@ test('editing the text in Settings applies to lists already made, line breaks ke
   const n = (await owner.get(`/phone-texts/batches/${list.batch.id}/next`)).body;
   assert.equal(n.item.body, 'Hi Paula, uniforms for Paula Lines Builders.\n\nFree quote: https://dssuniforms.com/pages/get-a-quote\nor call\n(747) 588-7117.\n\nReply STOP and we won\'t text again.');
 });
+
+test('send a finished list again: same people in a new numbered list, owner/admin only, opt-outs still out', async () => {
+  const a = await mk('Again One', '+17475550941'); const b = await mk('Again Two', '+17475550942');
+  const l = (await owner.post('/phone-texts/batches', { name: 'Again test', ids: [a.id, b.id] })).body.batch;
+  for (let i = 0; i < 2; i++) { const n = (await owner.get(`/phone-texts/batches/${l.id}/next`)).body; await owner.post(`/phone-texts/items/${n.item.id}/sent`); }
+  assert.equal((await sales.post(`/phone-texts/batches/${l.id}/again`)).status, 403);
+  await owner.patch(`/contacts/${b.id}`, { sms_marketing: 'opted_out' });
+  const r = (await owner.post(`/phone-texts/batches/${l.id}/again`)).body;
+  assert.equal(r.batch.name, 'Again test (2)'); assert.equal(r.added, 2);
+  const n = (await owner.get(`/phone-texts/batches/${r.batch.id}/next`)).body;
+  assert.equal(n.item.contact.id, a.id);
+  await owner.post(`/phone-texts/items/${n.item.id}/sent`);
+  const done = (await owner.get(`/phone-texts/batches/${r.batch.id}/next`)).body;
+  assert.equal(done.done, true); assert.equal(done.counts.skipped, 1, 'the opted-out person was skipped at send time');
+  assert.equal((await owner.post(`/phone-texts/batches/${r.batch.id}/again`)).body.batch.name, 'Again test (3)');
+  const lists = (await owner.get('/phone-texts/batches')).body;
+  assert.ok(lists.find(x => x.id === l.id).closed_at, 'the old list is closed, still shown with its results');
+});

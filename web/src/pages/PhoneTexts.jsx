@@ -17,6 +17,8 @@ export default function PhoneTexts() {
 }
 
 function Lists() {
+  const { can } = useSession();
+  const nav = useNavigate();
   const { data, error, reload } = useLoad(() => get('/phone-texts/batches'), []);
   const [run, busy] = useAction();
   return (
@@ -40,9 +42,11 @@ function Lists() {
                 <td className="nowrap"><Progress b={b} /> {b.sent} sent{b.skipped ? `, ${b.skipped} skipped` : ''} of {b.total}</td>
                 <td className="small" title={Object.entries(b.excluded || {}).map(([k, n]) => `${k}: ${n}`).join('\n')}>{left ? `${left} people` : '—'}</td>
                 <td className="nowrap" style={{ textAlign: 'right' }}>
-                  {b.closed_at ? <Pill>Closed</Pill> : <>
-                    {b.pending > 0 && <Link className="btn primary small" to={`/phone-texts/${b.id}`}>{b.sent ? 'Continue' : 'Start'}</Link>}{' '}
-                    <button className="btn small" disabled={busy} onClick={() => run(() => post(`/phone-texts/batches/${b.id}/close`), 'List closed').then(reload)}>Close</button></>}
+                  {!b.closed_at && b.pending > 0 ? <>
+                    <Link className="btn primary small" to={`/phone-texts/${b.id}`}>{b.sent ? 'Continue' : 'Start'}</Link>{' '}
+                    <button className="btn small" disabled={busy} onClick={() => run(() => post(`/phone-texts/batches/${b.id}/close`), 'List closed').then(reload)}>Close</button></> : <>
+                    {b.sent > 0 ? <Pill tone="green">✓ Sent</Pill> : <Pill>Closed</Pill>}{' '}
+                    {can('settings.write') && b.sent + b.skipped > 0 && <button className="btn small" disabled={busy} onClick={() => run(() => post(`/phone-texts/batches/${b.id}/again`), r => `New list "${r.batch.name}" with ${r.added} people`).then(r => nav(`/phone-texts/${r.batch.id}`)).catch(() => {})}>Send again</button>}</>}
                 </td>
               </tr>);
           })}</tbody></table></div>}

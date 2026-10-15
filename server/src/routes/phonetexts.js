@@ -180,6 +180,32 @@ r.post('/items/:id/skip', requirePerm('inbox.reply'), async (req, res) => {
   res.json({ ok: true });
 });
 
+/** Send a finished (or closed) list again: a new list with the same people, numbered "(2)", "(3)"…
+ *  Owner/admin only, because it skips the usual waiting period. Opt-outs and Do Not Call stay excluded at send time. */
+r.post('/batches/:id/again', requirePerm('inbox.reply'), async (req, res) => {
+  if (!['owner', 'admin'].includes(req.ctx.role)) throw new AppError(403, 'Only the owner or an admin can send a list again.');
+  const out = await withBiz(req.ctx.businessId, async c => {
+    const old = (await c.query('select * from phone_text_batches where id = $1', [req.params.id])).rows[0];
+    if (!old) throw notFound('List not found.');
+    const items = (await c.query(`select contact_id from phone_text_items where batch_id = $1 and status <> 'blocked' order by position`, [old.id])).rows;
+    if (!items.length) throw badRequest('Nobody in this list can be texted.');
+    const pendingElsewhere = (await c.query(`select count(*)::int n from phone_text_items i join phone_text_batches b on b.id = i.batch_id
+      where i.status = 'pending' and b.closed_at is null and b.id <> $1 and i.contact_id = any($2)`, [old.id, items.map(x => x.contact_id)])).rows[0].n;
+    if (pendingElsewhere) throw badRequest(`${pendingElsewhere} of these people are waiting in another open list.`, { hint: 'Finish or close that list first.' });
+    const base = old.name.replace(/\s\(\d+\)$/, '');
+    const names = (await c.query(`select name from phone_text_batches where name = $1 or left(name, length($1) + 2) = $1 || ' ('`, [base])).rows.map(x => x.name);
+    const n = names.filter(x => x === base || /^ \(\d+\)$/.test(x.slice(base.length))).length;
+    const name = `${base} (${n + 1})`;
+    const batch = (await c.query(`insert into phone_text_batches (business_id, name, template, filters, excluded, created_by, allow_repeat) values ($1,$2,$3,$4,'{}',$5,true) returning *`,
+      [req.ctx.businessId, name, old.template, { againOf: old.id }, req.ctx.userId])).rows[0];
+    for (const [i, it] of items.entries()) await c.query(`insert into phone_text_items (business_id, batch_id, contact_id, position) values ($1,$2,$3,$4)`, [req.ctx.businessId, batch.id, it.contact_id, i + 1]);
+    await c.query(`update phone_text_batches set closed_at = coalesce(closed_at, now()) where id = $1`, [old.id]);
+    await audit(c, req.ctx, 'phone_texts.again', 'phone_text_batch', batch.id, null, { from: old.id, added: items.length });
+    return { batch, added: items.length };
+  });
+  res.status(201).json(out);
+});
+
 r.post('/batches/:id/close', requirePerm('inbox.reply'), async (req, res) => {
   await withBiz(req.ctx.businessId, async c => {
     const n = (await c.query(`update phone_text_batches set closed_at = now() where id = $1 and closed_at is null returning id`, [req.params.id])).rowCount;
