@@ -116,6 +116,8 @@ test('quiet hours: sending window must stay within 08:00-21:00; area codes give 
   const tue1946 = new Date('2026-10-14T02:46:00Z');                                 // Tue 19:46 in Los Angeles
   assert.equal(withinCampaignHours(H, timezoneFor({ phone_e164: '+17475550100' }), tue1946).ok, true);
   assert.equal(withinCampaignHours(H, timezoneFor({ phone_e164: '+12125550100' }), tue1946).ok, false); // 22:46 in New York
+  // the rest of the tests run at any hour
+  await withBiz(biz.id, c => c.query(`update businesses set settings = jsonb_set(settings, '{campaignHours}', '{"start":"00:00","end":"23:59","timezone":"America/Los_Angeles","days":[1,2,3,4,5,6,7]}') where id = $1`, [biz.id]));
 });
 
 test('import reads licensing-board columns: title, address, city, county, ZIP; lists filter by them', async () => {
@@ -252,4 +254,15 @@ test('regression: a list that still carries an old text uses the Settings text',
   await withBiz(biz.id, c => c.query(`update phone_text_batches set template = 'OLD TEXT {first_name}. Reply STOP' where id = $1`, [l.id]));
   await owner.patch('/settings', { phoneText: { template: 'NEW TEXT {first_name}.\n\nReply STOP and we won\'t text again.' } });
   assert.equal((await owner.get(`/phone-texts/batches/${l.id}/next`)).body.item.body, 'NEW TEXT Quinn.\n\nReply STOP and we won\'t text again.');
+});
+
+test('import reads the CRM table column names: Print or embroidery, Deadline, Status, Responsible', async () => {
+  const csv = 'Lead,Name,Company,Phone,Status,Source,Responsible,Product,Quantity,Print or embroidery,Deadline,Industry,Industry type,City,Created,Last activity\n'
+    + ',Rita Table,Table Test Co,(818) 555-0981,Contacted,Table test,sales ds-systems,Polo,40,Embroidery,10/31/2026,Construction,C-10 Electrical,Glendale,,\n';
+  const fd = new FormData(); fd.append('file', new Blob([csv], { type: 'text/csv' }), 'table.csv');
+  const r = await owner.post('/contacts/import?commit=1', fd);
+  assert.deepEqual(r.body.columns.ignored, []);
+  const c = (await owner.get('/contacts?source=Table%20test')).body.rows[0];
+  assert.deepEqual([c.status, c.product_type, c.quantity, c.decoration, c.deadline?.slice(0, 10), c.owner_name, c.industry_type],
+    ['Contacted', 'Polo', 40, 'Embroidery', '2026-10-31', 'sales ds-systems', 'C-10 Electrical']);
 });

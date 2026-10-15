@@ -38,6 +38,13 @@ export async function readImportFile(file) {
   try { return csvParse(file.buffer, { columns: h => h.map(normHeader), skip_empty_lines: true, trim: true, bom: true, delimiter: [',', '\t', ';'], relax_column_count: true }); }
   catch (e) { throw badRequest(`This file could not be read: ${e.message}`, { hint: 'Use an Excel file (.xlsx) or CSV UTF-8.' }); }
 }
+const normDate = v => {
+  const t = String(v || '').trim(); if (!t) return null;
+  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10);
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(t);                 // US 10/31/2026
+  if (m) { const y = m[3].length === 2 ? `20${m[3]}` : m[3]; return `${y}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`; }
+  return null;
+};
 const normZip = v => { const m = /^\s*(\d{5})(?:-?(\d{4}))?/.exec(String(v || '').padStart(5, '0')); return v ? (m ? m[1] + (m[2] ? `-${m[2]}` : '') : null) : null; };
 const contactInput = z.object({
   name: z.string().max(160).nullish(), company: z.string().max(160).nullish(), phone: z.string().max(40).nullish(),
@@ -178,11 +185,15 @@ r.post('/import', requirePerm('contacts.import'), upload.single('file'), async (
   if (!rows.length) throw badRequest('This file has no rows under the header.');
   const defaultSource = String(req.query.source || '').trim().slice(0, 60) || 'import';
   const commit = req.query.commit === '1';
+  // "Responsible" column: a team member's name
+  const teamByName = new Map((await withBiz(req.ctx.businessId, c => c.query(`select u.id, u.name from memberships m join users u on u.id = m.user_id where m.business_id = app_biz() and m.active`))).rows.map(u => [u.name.toLowerCase(), u.id]));
   const map = row => ({ name: row.name || row.full_name || row.contact_name || row.licensee || row.licensee_name || row.owner || row.owner_name || null,
     company: row.company || row.company_name || row.business_name || row.business || row.organization || null,
     phone: row.phone || row.phone_number || row.mobile || row.business_phone || row.telephone || null, email: row.email || row.email_address || row.e_mail || null,
     source: row.source || defaultSource, product_type: row.product_type || row.product || null, quantity: row.quantity ? Number(row.quantity) : null,
-    decoration: row.decoration || null, notes: row.notes || null, industry: row.industry || null,
+    decoration: row.decoration || row.print_or_embroidery || null, notes: row.notes || null, industry: row.industry || null,
+    deadline: normDate(row.deadline), status: STATUSES.find(x => x.toLowerCase() === String(row.status || '').trim().toLowerCase()),
+    owner_user_id: teamByName.get(String(row.responsible || '').trim().toLowerCase()),
     title: row.title || row.job_title || row.position || null, address: row.address || row.street || row.street_address || row.address_1 || row.address1 || null,
     city: row.city || null, county: row.county || null, zip: normZip(row.zip || row.zip_code || row.zipcode || row.postal_code),
     license_no: row.license || row.license_number || row.license_no || row.lic || null, business_type: row.business_type || row.entity_type || null,
@@ -190,7 +201,8 @@ r.post('/import', requirePerm('contacts.import'), upload.single('file'), async (
   const KNOWN = new Set(['n', 'no', 'name', 'full_name', 'contact_name', 'licensee', 'licensee_name', 'owner', 'owner_name', 'company', 'company_name', 'business_name', 'business', 'organization',
     'phone', 'phone_number', 'mobile', 'business_phone', 'telephone', 'email', 'email_address', 'e_mail', 'source', 'product_type', 'product', 'quantity', 'decoration', 'notes', 'industry',
     'title', 'job_title', 'position', 'address', 'street', 'street_address', 'address_1', 'address1', 'city', 'county', 'zip', 'zip_code', 'zipcode', 'postal_code',
-    'license', 'license_number', 'license_no', 'lic', 'business_type', 'entity_type', 'industry_type', 'classification', 'other_personnel']);
+    'license', 'license_number', 'license_no', 'lic', 'business_type', 'entity_type', 'industry_type', 'classification', 'other_personnel',
+    'print_or_embroidery', 'deadline', 'status', 'responsible', 'lead', 'created', 'last_activity']);
   const headers = Object.keys(rows[0] || {}).filter(Boolean);
   const report = { total: rows.length, created: 0, updated: 0, invalid: [], duplicatesFlagged: 0, source: defaultSource,
     columns: { used: headers.filter(h => KNOWN.has(h) && !['n', 'no'].includes(h)), ignored: headers.filter(h => !KNOWN.has(h)) } };
