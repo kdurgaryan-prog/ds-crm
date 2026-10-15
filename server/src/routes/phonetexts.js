@@ -26,6 +26,17 @@ export function phoneTextBlock(contact, { dncListed = false, lastSentAt = null, 
   return null;
 }
 
+/** The customer record that is in use now: follows merges ("A was merged into B"); null if deleted. */
+async function currentContact(c, id) {
+  for (let i = 0; i < 10 && id; i++) {
+    const ct = (await c.query('select * from contacts where id = $1', [id])).rows[0];
+    if (!ct || ct.deleted_at) return null;
+    if (!ct.merged_into) return ct;
+    id = ct.merged_into;
+  }
+  return null;
+}
+
 async function blockFor(c, contact, s, { allowRepeat = false } = {}) {
   const dncListed = contact.phone_e164 ? (await c.query('select 1 from dnc_numbers where phone_e164 = $1', [contact.phone_e164])).rowCount > 0 : false;
   const last = (await c.query(`select max(done_at) t from phone_text_items where contact_id = $1 and status = 'sent'`, [contact.id])).rows[0].t;
@@ -111,7 +122,12 @@ r.get('/batches/:id/next', requirePerm('inbox.reply'), async (req, res) => {
           and (claimed_by is null or claimed_by = $2 or claimed_at < now() - make_interval(mins => $3))
         order by (claimed_by = $2) desc nulls last, position limit 1 for update skip locked`, [batch.id, req.ctx.userId, CLAIM_MINUTES])).rows[0];
       if (!item) return { ...base, done: counts.pending === 0, waiting: counts.pending > 0 ? 'The remaining people are open on a teammate\'s screen.' : undefined };
-      const ct = (await c.query('select * from contacts where id = $1', [item.contact_id])).rows[0];
+      let ct = (await c.query('select * from contacts where id = $1', [item.contact_id])).rows[0];
+      if (ct.merged_into) {   // merged since the list was made: text the record in use now, unless it is already in this list
+        const now = await currentContact(c, ct.merged_into);
+        const dup = now && (await c.query('select 1 from phone_text_items where batch_id = $1 and contact_id = $2', [batch.id, now.id])).rowCount;
+        if (now && !dup) { await c.query('update phone_text_items set contact_id = $2 where id = $1', [item.id, now.id]); ct = now; }
+      }
       const why = await blockFor(c, ct, s, { allowRepeat: batch.allow_repeat });
       if (why) {
         await c.query(`update phone_text_items set status = 'blocked', detail = $2, done_at = now() where id = $1`, [item.id, why]);
@@ -189,7 +205,13 @@ r.post('/batches/:id/again', requirePerm('inbox.reply'), async (req, res) => {
   const out = await withBiz(req.ctx.businessId, async c => {
     const old = (await c.query('select * from phone_text_batches where id = $1', [req.params.id])).rows[0];
     if (!old) throw notFound('List not found.');
-    const items = (await c.query(`select contact_id from phone_text_items where batch_id = $1 and status <> 'blocked' order by position`, [old.id])).rows;
+    const raw = (await c.query(`select contact_id, status, detail from phone_text_items where batch_id = $1 order by position`, [old.id])).rows;
+    const seen = new Set(); const items = [];
+    for (const r of raw) {
+      if (r.status === 'blocked' && r.detail !== 'Customer removed or merged') continue;
+      const ct = await currentContact(c, r.contact_id);
+      if (ct && !seen.has(ct.id)) { seen.add(ct.id); items.push({ contact_id: ct.id }); }
+    }
     if (!items.length) {
       const why = (await c.query(`select coalesce(detail, 'Skipped') d, count(*)::int n from phone_text_items where batch_id = $1 group by 1`, [old.id])).rows;
       throw badRequest('Nobody in this list can be texted.', { hint: why.map(x => `${x.d} (${x.n})`).join(', ') });

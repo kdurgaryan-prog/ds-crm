@@ -215,3 +215,21 @@ test('send a finished list again: same people in a new numbered list, owner/admi
   const lists = (await owner.get('/phone-texts/batches')).body;
   assert.ok(lists.find(x => x.id === l.id).closed_at, 'the old list is closed, still shown with its results');
 });
+
+test('merged customers: lists follow the merge to the record in use now', async () => {
+  const old1 = await mk('Merge Old', '+17475550951');
+  const keep = await mk('Merge Keep', '+17475550952');
+  const l = (await owner.post('/phone-texts/batches', { name: 'merge test', ids: [old1.id] })).body.batch;
+  const n = (await owner.get(`/phone-texts/batches/${l.id}/next`)).body; await owner.post(`/phone-texts/items/${n.item.id}/sent`);
+  await owner.post('/contacts/merge', { into: keep.id, from: old1.id });
+  const again = (await owner.post(`/phone-texts/batches/${l.id}/again`)).body;
+  assert.equal(again.added, 1);
+  const n2 = (await owner.get(`/phone-texts/batches/${again.batch.id}/next`)).body;
+  assert.equal(n2.item.contact.id, keep.id);
+  // a list made before the merge also follows it at send time
+  const a = await mk('Merge A', '+17475550953'); const b2 = await mk('Merge B', '+17475550954');
+  const l2 = (await owner.post('/phone-texts/batches', { name: 'merge later', ids: [a.id] })).body.batch;
+  await owner.post('/contacts/merge', { into: b2.id, from: a.id });
+  const n3 = (await owner.get(`/phone-texts/batches/${l2.id}/next`)).body;
+  assert.equal(n3.item.contact.id, b2.id);
+});
