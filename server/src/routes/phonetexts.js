@@ -28,13 +28,18 @@ export function phoneTextBlock(contact, { dncListed = false, lastSentAt = null, 
 
 /** The customer record that is in use now: follows merges ("A was merged into B"); null if deleted. */
 async function currentContact(c, id) {
+  let phone = null;
   for (let i = 0; i < 10 && id; i++) {
     const ct = (await c.query('select * from contacts where id = $1', [id])).rows[0];
-    if (!ct || ct.deleted_at) return null;
+    if (!ct) break;
+    phone = ct.phone_e164 || phone;
+    if (ct.deleted_at) break;
     if (!ct.merged_into) return ct;
     id = ct.merged_into;
   }
-  return null;
+  // Deleted and added again: the live customer with the same phone number is the same person.
+  if (!phone) return null;
+  return (await c.query(`select * from contacts where phone_e164 = $1 and deleted_at is null and merged_into is null order by created_at desc limit 1`, [phone])).rows[0] || null;
 }
 
 async function blockFor(c, contact, s, { allowRepeat = false } = {}) {
@@ -123,8 +128,8 @@ r.get('/batches/:id/next', requirePerm('inbox.reply'), async (req, res) => {
         order by (claimed_by = $2) desc nulls last, position limit 1 for update skip locked`, [batch.id, req.ctx.userId, CLAIM_MINUTES])).rows[0];
       if (!item) return { ...base, done: counts.pending === 0, waiting: counts.pending > 0 ? 'The remaining people are open on a teammate\'s screen.' : undefined };
       let ct = (await c.query('select * from contacts where id = $1', [item.contact_id])).rows[0];
-      if (ct.merged_into) {   // merged since the list was made: text the record in use now, unless it is already in this list
-        const now = await currentContact(c, ct.merged_into);
+      if (ct.merged_into || ct.deleted_at) {   // merged or re-added since the list was made: text the record in use now, unless it is already in this list
+        const now = await currentContact(c, ct.id);
         const dup = now && (await c.query('select 1 from phone_text_items where batch_id = $1 and contact_id = $2', [batch.id, now.id])).rowCount;
         if (now && !dup) { await c.query('update phone_text_items set contact_id = $2 where id = $1', [item.id, now.id]); ct = now; }
       }

@@ -233,3 +233,15 @@ test('merged customers: lists follow the merge to the record in use now', async 
   const n3 = (await owner.get(`/phone-texts/batches/${l2.id}/next`)).body;
   assert.equal(n3.item.contact.id, b2.id);
 });
+
+test('deleted and added again with the same phone: Send again finds the new record', async () => {
+  const old1 = await mk('Readd Old', '+17475550961');
+  const l = (await owner.post('/phone-texts/batches', { name: 'readd', ids: [old1.id] })).body.batch;
+  const n = (await owner.get(`/phone-texts/batches/${l.id}/next`)).body; await owner.post(`/phone-texts/items/${n.item.id}/sent`);
+  await owner.del(`/contacts/${old1.id}`);
+  const fresh = await mk('Readd New', '+17475550961');
+  assert.notEqual(fresh.id, old1.id);
+  const again = (await owner.post(`/phone-texts/batches/${l.id}/again`)).body;
+  assert.equal(again.added, 1, JSON.stringify(again));
+  assert.equal((await owner.get(`/phone-texts/batches/${again.batch.id}/next`)).body.item.contact.id, fresh.id);
+});
