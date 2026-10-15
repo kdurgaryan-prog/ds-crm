@@ -141,7 +141,7 @@ r.get('/batches/:id/next', requirePerm('inbox.reply'), async (req, res) => {
       }
       const hours = withinCampaignHours(s.campaignHours, timezoneFor(ct));
       if (!hours.ok) return { ...base, paused: `Outside sending hours: ${hours.reason}. Texts can go ${s.campaignHours.start}–${s.campaignHours.end} on weekdays, in the customer's time too.` };
-      const body = fillTemplate(batch.template || s.phoneText.template, ct);
+      const body = fillTemplate(s.phoneText.template, ct);   // always the text in Settings right now
       await c.query(`update phone_text_items set claimed_by = $2, claimed_at = now(), body = $3 where id = $1`, [item.id, req.ctx.userId, body]);
       return { ...base, item: { id: item.id, position: item.position, body,
         contact: { id: ct.id, lead_no: ct.lead_no, name: ct.name, company: ct.company, phone_e164: ct.phone_e164, industry: ct.industry, status: ct.status } } };

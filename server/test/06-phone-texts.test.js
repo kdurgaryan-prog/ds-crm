@@ -245,3 +245,11 @@ test('deleted and added again with the same phone: Send again finds the new reco
   assert.equal(again.added, 1, JSON.stringify(again));
   assert.equal((await owner.get(`/phone-texts/batches/${again.batch.id}/next`)).body.item.contact.id, fresh.id);
 });
+
+test('regression: a list that still carries an old text uses the Settings text', async () => {
+  const q = await mk('Quinn Old', '+17475550971');
+  const l = (await owner.post('/phone-texts/batches', { name: 'old text', ids: [q.id] })).body.batch;
+  await withBiz(biz.id, c => c.query(`update phone_text_batches set template = 'OLD TEXT {first_name}. Reply STOP' where id = $1`, [l.id]));
+  await owner.patch('/settings', { phoneText: { template: 'NEW TEXT {first_name}.\n\nReply STOP and we won\'t text again.' } });
+  assert.equal((await owner.get(`/phone-texts/batches/${l.id}/next`)).body.item.body, 'NEW TEXT Quinn.\n\nReply STOP and we won\'t text again.');
+});
