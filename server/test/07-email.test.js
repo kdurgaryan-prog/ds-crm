@@ -127,3 +127,14 @@ test('email campaign: Arev draft with subject, owner approval, paced sending wit
   assert.equal(sentMail.length, before, 'already over today\'s limit: nothing more goes out today');
   assert.equal((await owner.get(`/marketing/${c3.body.id}`)).body.status, 'running');
 });
+
+test('saving the mailbox starts polling; a dead poll job is revived on start', async () => {
+  const r = await owner.put('/settings/channels/email', { config: { address: 'dssystemsusa@gmail.com' }, secrets: { password: 'app-password' } });
+  assert.equal(r.body.status, 'connected');
+  const job = () => withBiz(biz.id, c => c.query(`select status from jobs where idempotency_key = 'email.poll'`)).then(x => x.rows[0]);
+  assert.equal((await job()).status, 'pending');
+  await withBiz(biz.id, c => c.query(`update jobs set status = 'dead' where idempotency_key = 'email.poll'`));
+  const { ensureEmailPolling } = await import('../src/integrations/email.js');
+  await ensureEmailPolling();
+  assert.equal((await job()).status, 'pending');
+});

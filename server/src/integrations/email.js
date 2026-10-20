@@ -158,6 +158,7 @@ registerHandler('email.poll', async job => {
 export async function ensureEmailPolling() {
   const rows = (await withSystem(c => c.query(`select business_id from channel_accounts where channel = 'email' and status = 'connected'`))).rows;
   for (const { business_id } of rows) {
+    await withSystem(c => c.query(`update jobs set status = 'pending', attempts = 0, run_at = now(), last_error = null where business_id = $1 and idempotency_key = 'email.poll' and status = 'dead'`, [business_id]));
     await withSystem(c => c.query(`insert into jobs (business_id, kind, payload, idempotency_key, run_at, max_attempts, created_at) values ($1,'email.poll','{}','email.poll', now(), 1000000, clock_timestamp())
       on conflict (business_id, idempotency_key) do nothing`, [business_id]));
   }

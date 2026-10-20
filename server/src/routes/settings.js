@@ -128,6 +128,7 @@ r.put('/channels/:channel', requirePerm('integrations.write'), async (req, res) 
     }
   });
   const result = await withBiz(req.ctx.businessId, c => verifyChannel(c, ch));
+  if (ch === 'email' && result === 'connected') { const { ensureEmailPolling } = await import('../integrations/email.js'); await ensureEmailPolling(); }
   res.json({ status: result });
 });
 
