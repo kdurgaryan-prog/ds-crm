@@ -14,6 +14,7 @@ const KINDS = {
   whatsapp_blast: 'a WhatsApp marketing message body (it will be sent via an approved template)',
   content_calendar: 'a 4-week content calendar: for each item give date offset (day number), channel, format, topic, and a one-line hook',
   call_campaign: 'a short call-campaign brief for Natalie: target segment, purpose, and talking points (no prices)',
+  email_blast: 'a short B2B cold email (under 120 words, plain text, no HTML): first line "Subject: …", then a blank line, then the body. Open with one line about their trade, one line about what we make (custom uniforms/workwear with their logo: embroidery, DTF or screen printing), one clear call to action (reply, or text UNIFORM to (747) 588-7117, or the quote page). Use {first_name} and {company} placeholders. No prices. Do not add an unsubscribe line (it is added automatically).',
 };
 
 const FAKE_PROOF_RE = /(["“][^"”]{10,}["”]\s*[-—–]\s*[A-Z][a-z]+)|(\b\d(\.\d)?\s*stars?\b)|(\b(testimonial|review)s?\s*:)|(\btrusted by\b)|(\bover\s+\d[\d,]*\+?\s+(clients|customers|businesses)\b)|(\bin partnership with\b)|(\bas seen (on|in)\b)/i;
@@ -49,13 +50,15 @@ Aggregated CRM data you may use (counts only): ${JSON.stringify(insights)}`;
   const text = textOf(resp);
   const warnings = FAKE_PROOF_RE.test(text) ? ['This draft may contain social proof (quotes, ratings, client counts). Verify it is real and permitted before approving.'] : [];
   if (kind === 'sms_blast' && !/reply stop/i.test(text)) warnings.push('SMS is missing the "Reply STOP to opt out" line.');
+  let subject = null; let bodyText = text;
+  if (kind === 'email_blast') { const m = /^\s*Subject:\s*(.+)\n+([\s\S]*)$/i.exec(text); if (m) { subject = m[1].trim().slice(0, 200); bodyText = m[2].trim(); } else warnings.push('Add a subject line.'); }
   const camp = await createCampaign(c, { ...ctx, agent: 'arev' }, {
     kind, title: `${kind.replace(/_/g, ' ')}: ${(brief || 'auto').slice(0, 60)}`, agent: 'arev',
-    content: { text, channels, audience, schedule_at: scheduleAt, brief, warnings, files: [] },
+    content: { text: bodyText, subject, channels, audience, schedule_at: scheduleAt, brief, warnings, files: [] },
   });
   await logAgentAction(c, ctx.businessId, {
     agent: 'arev', action: `draft_${kind}`, basedOn: { brief, scopes: settings.agents.arev.dataScopes, aggregates: Object.keys(insights) },
-    change: { campaignId: camp.id, status: 'draft' }, approvalRequired: ['social_post', 'sms_blast', 'whatsapp_blast', 'call_campaign'].includes(kind),
+    change: { campaignId: camp.id, status: 'draft' }, approvalRequired: ['social_post', 'sms_blast', 'whatsapp_blast', 'call_campaign', 'email_blast'].includes(kind),
     approvalStatus: 'pending', result: 'ok', detail: warnings.join(' ') || null,
   });
   return camp;

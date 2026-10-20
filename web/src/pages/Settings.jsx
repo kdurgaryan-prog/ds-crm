@@ -38,7 +38,8 @@ function General() {
     calls: { recordCalls: f.calls.recordCalls, recordingDisclosure: f.calls.recordingDisclosure, handoffNumber: f.calls.handoffNumber, ringTimeoutSec: Number(f.calls.ringTimeoutSec), postCallSms: f.calls.postCallSms || { enabled: false, text: '' } },
     quotes: { defaultTaxRate: Number(f.quotes.defaultTaxRate), validDays: Number(f.quotes.validDays) },
     sms: { introText: f.sms.introText, keywords: String(f.sms.keywordsText ?? f.sms.keywords.join(', ')).split(/[,\s]+/).filter(Boolean), keywordOptIn: f.sms.keywordOptIn, autoTextWebLeads: f.sms.autoTextWebLeads, helpText: f.sms.helpText },
-    phoneText: { template: f.phoneText.template, dailyLimit: Number(f.phoneText.dailyLimit), repeatDays: Number(f.phoneText.repeatDays) } }), 'Settings saved').then(reload);
+    phoneText: { template: f.phoneText.template, dailyLimit: Number(f.phoneText.dailyLimit), repeatDays: Number(f.phoneText.repeatDays) },
+    email: { dailyLimit: Number(f.email.dailyLimit), secondsBetween: Number(f.email.secondsBetween), signature: f.email.signature } }), 'Settings saved').then(reload);
   const check = data.settings.links.checks || {};
   const linkState = url => { const c = check[url]; if (!c) return <Pill>Not checked yet</Pill>; return c.ok ? <Pill tone="green">Works ({c.status})</Pill> : <Pill tone="red">Not working: {c.status || c.error}</Pill>; };
   const set = (path, v) => { const n = structuredClone(f); const ks = path.split('.'); let o = n; for (const k of ks.slice(0, -1)) o = o[k] ||= {}; o[ks.at(-1)] = v; setF(n); };
@@ -55,6 +56,14 @@ function General() {
       </section>
       <SmsSection f={f} set={set} w={w} />
       <PhoneTextSection f={f} set={set} w={w} />
+      <section className="panel"><h2>Email campaigns</h2>
+        <p className="muted" style={{ marginTop: -6 }}>Sent from the mailbox connected under Channels. Every marketing email gets an unsubscribe link; replies land in the Inbox.</p>
+        <div className="grid2">
+          <Field label="Most marketing emails per day" hint="Gmail allows about 500 a day in total. 100–150 keeps the mailbox off spam lists."><input className="in" type="number" min="1" max="450" disabled={!w} value={f.email.dailyLimit} onChange={e => set('email.dailyLimit', e.target.value)} /></Field>
+          <Field label="Seconds between emails"><input className="in" type="number" min="10" max="600" disabled={!w} value={f.email.secondsBetween} onChange={e => set('email.secondsBetween', e.target.value)} /></Field>
+        </div>
+        <Field label="Signature (added under every email)"><input className="in" disabled={!w} value={f.email.signature} onChange={e => set('email.signature', e.target.value)} maxLength={400} /></Field>
+      </section>
       <section className="panel"><h2>Orders</h2>
         <div className="grid2">
           <Field label="Minimum order (pieces of the same item and color)"><input className="in" type="number" min="1" disabled={!w} value={f.moq.minQty} onChange={e => set('moq.minQty', e.target.value)} /></Field>
@@ -146,11 +155,12 @@ const CH_HELP = {
   messenger: 'Meta for Developers app with Messenger: Page ID and a Page access token, the app secret, and a verify token you choose.',
   instagram: 'Same Meta app with Instagram messaging: Instagram business account ID, the linked Page access token, app secret and verify token.',
   shopify: 'Optional. Shopify admin → Apps → Develop apps → Admin API access token.',
+  email: 'Gmail: turn on 2-Step Verification, then Google Account → Security → App passwords → create one for "Mail" and paste the 16-character password here. Also enable IMAP (Gmail Settings → Forwarding and POP/IMAP). Other mailboxes: fill in the SMTP/IMAP hosts.',
   webchat: 'Turns on automatically the first time a visitor writes from your website.',
   website_forms: 'Turns on automatically when the first quote form arrives from your website.',
   ai: 'Set ANTHROPIC_API_KEY on the server (not here) and restart, then check the connection.',
 };
-const NICE = { accountSid: 'Account SID', authToken: 'Auth token', apiKeySid: 'API key SID', apiKeySecret: 'API key secret', phoneNumber: 'Phone number', messagingServiceSid: 'Messaging Service SID (optional)', twimlAppSid: 'TwiML App SID', whatsappNumber: 'WhatsApp number', pageAccessToken: 'Page access token', appSecret: 'App secret', verifyToken: 'Verify token', pageId: 'Facebook Page ID', igAccountId: 'Instagram account ID', adminToken: 'Admin API token', webhookSecret: 'Webhook secret', shopDomain: 'Store domain (xxx.myshopify.com)' };
+const NICE = { accountSid: 'Account SID', authToken: 'Auth token', apiKeySid: 'API key SID', apiKeySecret: 'API key secret', phoneNumber: 'Phone number', messagingServiceSid: 'Messaging Service SID (optional)', twimlAppSid: 'TwiML App SID', whatsappNumber: 'WhatsApp number', pageAccessToken: 'Page access token', appSecret: 'App secret', verifyToken: 'Verify token', pageId: 'Facebook Page ID', igAccountId: 'Instagram account ID', adminToken: 'Admin API token', webhookSecret: 'Webhook secret', shopDomain: 'Store domain (xxx.myshopify.com)', address: 'Email address', fromName: 'Sender name (e.g. DS Systems)', password: 'App password', smtpHost: 'SMTP host (default smtp.gmail.com)', smtpPort: 'SMTP port (default 465)', imapHost: 'IMAP host (default imap.gmail.com)' };
 
 function Channels() {
   const { can } = useSession();
@@ -169,7 +179,7 @@ function Channels() {
           <div className="row"><h2 style={{ margin: 0 }}>{ch.label}</h2><Pill tone={tone[ch.status]}>{label[ch.status]}</Pill><span className="spacer" />
             {ch.lastCheckedAt && <span className="small muted">Checked {dateTime(ch.lastCheckedAt)}</span>}
             {can('integrations.write') && ch.fields.secrets.length + ch.fields.config.length > 0 && <button className="btn small" onClick={() => setEdit(edit === ch.channel ? null : ch.channel)}>{edit === ch.channel ? 'Close' : ch.status === 'needs_setup' ? 'Set up' : 'Edit'}</button>}
-            {can('integrations.write') && ['sms', 'voice', 'whatsapp', 'messenger', 'instagram', 'ai', 'shopify'].includes(ch.channel) && ch.status !== 'needs_setup' && <button className="btn small" disabled={busy} onClick={() => run(() => post(`/settings/channels/${ch.channel}/verify`), r => (r.status === 'connected' ? 'Connection works' : 'Connection check failed — see the error')).then(reload)}>Check connection</button>}</div>
+            {can('integrations.write') && ['sms', 'voice', 'whatsapp', 'messenger', 'instagram', 'ai', 'shopify', 'email'].includes(ch.channel) && ch.status !== 'needs_setup' && <button className="btn small" disabled={busy} onClick={() => run(() => post(`/settings/channels/${ch.channel}/verify`), r => (r.status === 'connected' ? 'Connection works' : 'Connection check failed — see the error')).then(reload)}>Check connection</button>}</div>
           {ch.lastError && <div className={`notice ${ch.status === 'error' ? 'bad' : ''} small`} style={{ marginTop: 8 }}>{ch.lastError}</div>}
           <p className="small muted" style={{ margin: '8px 0 0' }}>{CH_HELP[ch.channel]}</p>
           {edit === ch.channel && <ChannelForm ch={ch} onDone={() => { setEdit(null); reload(); }} />}

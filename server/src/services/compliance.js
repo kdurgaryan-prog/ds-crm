@@ -75,6 +75,12 @@ export function checkContactAllowed({ contact, dncListed = false, purpose, chann
   if (contact.dnc || dncListed) {
     if (channel === 'voice' || purpose === 'marketing') reasons.push('On Do Not Call list');
   }
+  if (channel === 'email') {
+    // Email follows CAN-SPAM: no prior consent needed, but an unsubscribe is final and there are no sending hours.
+    if (contact.email_opted_out_at) reasons.push('Unsubscribed from email');
+    if (!contact.email) reasons.push('No email address');
+    return { allowed: reasons.length === 0, reasons };
+  }
   const isText = ['sms', 'whatsapp', 'mms'].includes(channel);
   const isMsg = isText || ['messenger', 'instagram'].includes(channel);
   if (contact.opted_out_at && isMsg) {

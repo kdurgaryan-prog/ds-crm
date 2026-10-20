@@ -7,10 +7,10 @@ import { createCampaign, updateCampaign, submitForApproval, approveCampaign, rej
 import { arevDraft, arevSuggestions } from '../agents/arev.js';
 
 const r = Router();
-const KINDS = ['social_post', 'ad_copy', 'sms_blast', 'whatsapp_blast', 'call_campaign', 'image_prompt', 'video_script', 'content_calendar'];
+const KINDS = ['social_post', 'ad_copy', 'sms_blast', 'whatsapp_blast', 'call_campaign', 'image_prompt', 'video_script', 'content_calendar', 'email_blast'];
 const content = z.object({
-  text: z.string().max(20000).optional(), channels: z.array(z.enum(['messenger', 'instagram', 'sms', 'whatsapp', 'voice'])).optional(),
-  audience: z.object({ statuses: z.array(z.string()).optional(), industries: z.array(z.string()).optional(), sources: z.array(z.string()).optional(), productTypes: z.array(z.string()).optional(), contactIds: z.array(z.string().uuid()).optional() }).nullish(),
+  text: z.string().max(20000).optional(), subject: z.string().max(200).nullish(), channels: z.array(z.enum(['messenger', 'instagram', 'sms', 'whatsapp', 'voice'])).optional(),
+  audience: z.object({ statuses: z.array(z.string()).optional(), industries: z.array(z.string()).optional(), sources: z.array(z.string()).optional(), productTypes: z.array(z.string()).optional(), counties: z.array(z.string()).optional(), cities: z.array(z.string()).optional(), industryTypes: z.array(z.string()).optional(), contactIds: z.array(z.string().uuid()).optional() }).nullish(),
   schedule_at: z.string().datetime({ offset: true }).nullish(), template_sid: z.string().max(64).nullish(), template_variables: z.record(z.string(), z.string()).nullish(),
   files: z.array(z.object({ id: z.string().uuid(), filename: z.string(), mime: z.string().nullish(), contact_id: z.string().uuid().nullish(), marketing_permission: z.string().nullish() })).optional(),
   brief: z.string().max(2000).nullish(), warnings: z.array(z.string()).optional(),

@@ -153,7 +153,7 @@ export async function mergeContacts(c, ctx, intoId, fromId) {
 
 /** Find or create the contact behind an inbound message/call. */
 export async function resolveInboundContact(c, ctx, { channel, address, phone, name, source }) {
-  const kindFor = { sms: 'phone', voice: 'phone', whatsapp: 'whatsapp', messenger: 'messenger', instagram: 'instagram', webchat: 'webchat' };
+  const kindFor = { sms: 'phone', voice: 'phone', whatsapp: 'whatsapp', messenger: 'messenger', instagram: 'instagram', webchat: 'webchat', email: 'email' };
   const kind = kindFor[channel];
   const e164 = phone ? normalizePhone(phone) : null;
   let contact = (kind && address ? await findByIdentity(c, kind, kind === 'phone' ? e164 : address) : null)
@@ -162,7 +162,12 @@ export async function resolveInboundContact(c, ctx, { channel, address, phone, n
     if (kind && address) await addIdentity(c, ctx, contact.id, kind, kind === 'phone' ? e164 : address);
     return { contact, created: false };
   }
+  if (channel === 'email' && address) {
+    // the address is also the contact's email field, so a known customer (imported with an email) is matched, not duplicated
+    const byEmail = (await c.query(`select * from contacts where lower(email) = lower($1) and deleted_at is null and merged_into is null order by created_at limit 1`, [address])).rows[0];
+    if (byEmail) { await addIdentity(c, ctx, byEmail.id, 'email', address); return { contact: byEmail, created: false }; }
+  }
   const identities = kind && kind !== 'phone' && address ? [{ kind, value: address }] : [];
-  const r = await createContact(c, ctx, { name: name || null, phone_raw: e164 || undefined, source: source || channel }, { identities });
+  const r = await createContact(c, ctx, { name: name || null, phone_raw: e164 || undefined, source: source || channel, ...(channel === 'email' ? { email: address } : {}) }, { identities });
   return { contact: r.contact, created: !r.existing };
 }

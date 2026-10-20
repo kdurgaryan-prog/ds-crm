@@ -5,9 +5,9 @@ import { useLoad, LoadError, Pill, Field, useAction, Empty, Icon, Modal, Confirm
 import { useSession } from '../lib/session.jsx';
 import { dateTime, dateShort, CHANNEL } from '../lib/format.js';
 
-export const KINDS = { social_post: 'Social post', ad_copy: 'Ad copy', sms_blast: 'Text message campaign', whatsapp_blast: 'WhatsApp campaign', call_campaign: 'Call campaign (Natalie)', image_prompt: 'Image prompt', video_script: 'Video script', content_calendar: 'Content calendar' };
+export const KINDS = { social_post: 'Social post', ad_copy: 'Ad copy', sms_blast: 'Text message campaign', whatsapp_blast: 'WhatsApp campaign', call_campaign: 'Call campaign (Natalie)', email_blast: 'Email campaign', image_prompt: 'Image prompt', video_script: 'Video script', content_calendar: 'Content calendar' };
 const ST = { draft: ['Draft', ''], pending_approval: ['Waiting for approval', 'amber'], approved: ['Approved', 'blue'], scheduled: ['Scheduled', 'blue'], running: ['Running', 'green'], paused: ['Paused', 'amber'], stopped: ['Stopped', 'red'], published: ['Published', 'green'], completed: ['Completed', 'green'], failed: ['Failed', 'red'], rejected: ['Sent back', 'red'] };
-const SENDS = ['social_post', 'sms_blast', 'whatsapp_blast', 'call_campaign'];
+const SENDS = ['social_post', 'sms_blast', 'whatsapp_blast', 'call_campaign', 'email_blast'];
 
 export default function Marketing() {
   const [sp, setSp] = useSearchParams();
@@ -88,7 +88,9 @@ export function CampaignDetail() {
       <div className="card-grid">
         <section className="panel">
           <h2>Content</h2>
+          {c.kind === 'email_blast' && <Field label="Subject" hint="{first_name} and {company} are filled in per person."><input className="in" disabled={!editable} value={content.subject || ''} onChange={e => set('subject', e.target.value)} maxLength={200} /></Field>}
           <textarea className="in" rows={14} disabled={!editable} value={content.text || ''} onChange={e => set('text', e.target.value)} aria-label="Content" />
+          {c.kind === 'email_blast' && <div className="small muted">Plain text. An unsubscribe link and your signature are added to every email automatically. People who unsubscribed or have no email are skipped.</div>}
           {c.kind === 'sms_blast' && <div className="small muted">{(content.text || '').length} characters. Keep "Reply STOP to opt out".</div>}
           {c.kind === 'whatsapp_blast' && <Field label="Approved WhatsApp template ID" hint="WhatsApp only allows approved templates for marketing."><input className="in" disabled={!editable} value={content.template_sid || ''} onChange={e => set('template_sid', e.target.value)} placeholder="HX…" /></Field>}
           {content.brief && <p className="small muted">Brief: {content.brief}</p>}
@@ -97,10 +99,13 @@ export function CampaignDetail() {
           <h2>Where and when</h2>
           {c.kind === 'social_post' && <Field label="Post to"><div className="row">{['instagram', 'messenger'].map(ch => <label key={ch} className="row"><input type="checkbox" disabled={!editable} checked={(content.channels || []).includes(ch)} onChange={e => set('channels', e.target.checked ? [...(content.channels || []), ch] : content.channels.filter(x => x !== ch))} />{ch === 'messenger' ? 'Facebook Page' : 'Instagram'}</label>)}</div></Field>}
           {sends && <Field label="Schedule (optional)"><input className="in" type="datetime-local" disabled={!editable} value={content.schedule_at ? new Date(new Date(content.schedule_at) - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''} onChange={e => set('schedule_at', e.target.value ? new Date(e.target.value).toISOString() : null)} /></Field>}
-          {['sms_blast', 'whatsapp_blast', 'call_campaign'].includes(c.kind) && facets.data && <>
+          {['sms_blast', 'whatsapp_blast', 'call_campaign', 'email_blast'].includes(c.kind) && facets.data && <>
             <h3 style={{ margin: '12px 0 6px' }}>Audience</h3>
             <Field label="Status"><select className="in" multiple size={4} disabled={!editable} value={aud.statuses || []} onChange={e => setAud('statuses', [...e.target.selectedOptions].map(o => o.value))}>{facets.data.statuses.map(s => <option key={s}>{s}</option>)}</select></Field>
             <Field label="Source"><select className="in" multiple size={4} disabled={!editable} value={aud.sources || []} onChange={e => setAud('sources', [...e.target.selectedOptions].map(o => o.value))}>{facets.data.sources.map(s => <option key={s}>{s}</option>)}</select></Field>
+            <Field label="Industry"><select className="in" multiple size={4} disabled={!editable} value={aud.industries || []} onChange={e => setAud('industries', [...e.target.selectedOptions].map(o => o.value))}>{(facets.data.industries || []).map(s => <option key={s}>{s}</option>)}</select></Field>
+            <Field label="Industry type"><select className="in" multiple size={4} disabled={!editable} value={aud.industryTypes || []} onChange={e => setAud('industryTypes', [...e.target.selectedOptions].map(o => o.value))}>{(facets.data.industryTypes || []).map(s => <option key={s}>{s}</option>)}</select></Field>
+            <Field label="County"><select className="in" multiple size={4} disabled={!editable} value={aud.counties || []} onChange={e => setAud('counties', [...e.target.selectedOptions].map(o => o.value))}>{(facets.data.counties || []).map(s => <option key={s}>{s}</option>)}</select></Field>
             <Field label="Product"><select className="in" multiple size={4} disabled={!editable} value={aud.productTypes || []} onChange={e => setAud('productTypes', [...e.target.selectedOptions].map(o => o.value))}>{facets.data.products.map(s => <option key={s}>{s}</option>)}</select></Field>
             <p className="small muted">Hold Ctrl or ⌘ to choose several. People without consent, on the Do Not Call list or opted out are skipped automatically.</p>
           </>}
@@ -139,7 +144,7 @@ function ApprovalPreview({ id, p, onClose }) {
       <div><b>Final text</b><pre className="code" style={{ fontFamily: 'inherit', fontSize: '1em' }}>{v.text || '(empty)'}</pre></div>
       {v.templateSid && <div><b>WhatsApp template:</b> {v.templateSid}</div>}
       <div><b>Files:</b> {v.files.length ? v.files.map(f => f.filename).join(', ') : 'none'}</div>
-      <div><b>Channels:</b> {v.channels.length ? v.channels.map(ch => ch === 'messenger' ? 'Facebook Page' : CHANNEL[ch] || ch).join(', ') : v.kind === 'sms_blast' ? 'SMS' : v.kind === 'whatsapp_blast' ? 'WhatsApp' : v.kind === 'call_campaign' ? 'Phone calls by Natalie' : '—'}</div>
+      <div><b>Channels:</b> {v.channels.length ? v.channels.map(ch => ch === 'messenger' ? 'Facebook Page' : CHANNEL[ch] || ch).join(', ') : v.kind === 'sms_blast' ? 'SMS' : v.kind === 'whatsapp_blast' ? 'WhatsApp' : v.kind === 'call_campaign' ? 'Phone calls by Natalie' : v.kind === 'email_blast' ? 'Email' : '—'}</div>
       <div><b>When:</b> {v.scheduleAt ? dateTime(v.scheduleAt) : 'When you press Start'}{p.preview.sendingHours ? ` — only ${p.preview.sendingHours}` : ''}</div>
       {v.audienceSummary && <div><b>Audience:</b> {v.audienceSummary.matched} match, <b>{v.audienceSummary.eligible}</b> can be contacted.
         {Object.entries(v.audienceSummary.skipped).map(([r, n]) => <div key={r} className="small muted">{n} skipped: {r}</div>)}

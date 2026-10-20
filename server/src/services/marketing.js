@@ -11,7 +11,9 @@ import { getChannel, GRAPH, deliveryMode } from '../integrations/channels.js';
 import { signedMediaUrl } from './files.js';
 import { DateTime } from 'luxon';
 
-export const SENDING_KINDS = ['sms_blast', 'whatsapp_blast', 'call_campaign'];
+export const SENDING_KINDS = ['sms_blast', 'whatsapp_blast', 'call_campaign', 'email_blast'];
+const channelOf = k => (k === 'call_campaign' ? 'voice' : k === 'sms_blast' ? 'sms' : k === 'email_blast' ? 'email' : 'whatsapp');
+
 export const PUBLISH_KINDS = ['social_post'];
 
 export async function getCampaign(c, id) {
@@ -25,6 +27,7 @@ export async function resolveAudience(c, audience = {}) {
   const where = ['deleted_at is null', 'merged_into is null']; const vals = [];
   const add = (col, arr) => { if (arr?.length) { vals.push(arr); where.push(`${col} = any($${vals.length})`); } };
   add('status', audience.statuses); add('industry', audience.industries); add('source', audience.sources); add('product_type', audience.productTypes);
+  add('county', audience.counties); add('city', audience.cities); add('industry_type', audience.industryTypes);
   if (audience.contactIds?.length) { vals.push(audience.contactIds); where.push(`id = any($${vals.length})`); }
   const { rows } = await c.query(`select * from contacts where ${where.join(' and ')} order by lead_no limit 5000`, vals);
   return rows;
@@ -43,15 +46,17 @@ export async function approvalPreview(c, ctx, campaign) {
   const hash = sha256(stableStringify(preview));
   if (SENDING_KINDS.includes(campaign.kind)) {
     const people = await resolveAudience(c, content.audience);
-    const channel = campaign.kind === 'call_campaign' ? 'voice' : campaign.kind === 'sms_blast' ? 'sms' : 'whatsapp';
+    const channel = channelOf(campaign.kind);
     let allowed = 0; const skipped = {};
     for (const p of people) {
       const chk = checkContactAllowed({ contact: p, purpose: 'marketing', channel, hours: { ...s.campaignHours, days: null, start: '00:00', end: '23:59' }, aiVoice: channel === 'voice' });
-      if (!p.phone_e164) { skipped['No phone number'] = (skipped['No phone number'] || 0) + 1; continue; }
+      if (channel !== 'email' && !p.phone_e164) { skipped['No phone number'] = (skipped['No phone number'] || 0) + 1; continue; }
       if (chk.allowed) allowed++; else for (const r of chk.reasons) skipped[r] = (skipped[r] || 0) + 1;
     }
     preview.audienceSummary = { matched: people.length, eligible: allowed, skipped, sample: people.slice(0, 8).map(p => ({ lead_no: p.lead_no, name: p.name, company: p.company })) };
-    preview.sendingHours = `${s.campaignHours.start}–${s.campaignHours.end} ${s.campaignHours.timezone}, and inside each recipient's local hours`;
+    preview.sendingHours = channel === 'email' ? `Up to ${s.email.dailyLimit} emails a day, one every ${s.email.secondsBetween} seconds (keeps the mailbox off spam lists)` : `${s.campaignHours.start}–${s.campaignHours.end} ${s.campaignHours.timezone}, and inside each recipient's local hours`;
+    if (campaign.kind === 'email_blast' && !content.subject) warnings.push('Email needs a subject line.');
+    if (campaign.kind === 'email_blast') preview.subject = content.subject || null;
     if (campaign.kind === 'whatsapp_blast' && !content.template_sid) warnings.push('WhatsApp marketing needs an approved template (Template SID).');
     if (campaign.kind === 'call_campaign') warnings.push('Natalie will place AI calls. Only contacts with written call consent on file will be called.');
   }
@@ -210,10 +215,14 @@ registerHandler('campaign.tick', async job => withBiz(job.business_id, async c =
     await c.query(`update campaigns set status = 'paused', result = result || '{"pausedReason":"Changed after approval"}' where id = $1`, [camp.id]);
     return {};
   }
-  if (!withinCampaignHours({ ...s.campaignHours }, 'America/Los_Angeles').ok) {
+  const channel = channelOf(camp.kind);
+  if (channel !== 'email' && !withinCampaignHours({ ...s.campaignHours }, null).ok) {
     return { reschedule: Math.max(60, Math.round((nextWindowStart(s.campaignHours) - Date.now()) / 1000)) };
   }
-  const channel = camp.kind === 'call_campaign' ? 'voice' : camp.kind === 'sms_blast' ? 'sms' : 'whatsapp';
+  if (channel === 'email') {
+    const sentToday = (await c.query(`select count(*)::int n from messages where channel = 'email' and direction = 'out' and purpose = 'marketing' and status in ('sent','sending','queued','sandbox') and created_at >= (date_trunc('day', now() at time zone $1) at time zone $1)`, [s.campaignHours.timezone])).rows[0].n;
+    if (sentToday >= s.email.dailyLimit) return { reschedule: 1800 };   // today's limit reached: look again in 30 minutes
+  }
   if (channel === 'voice') {
     if (!s.agents.natalie.enabled || !s.agents.natalie.outboundCalls) {
       await c.query(`update campaigns set status = 'paused', result = result || '{"pausedReason":"Natalie outbound calls turned off"}' where id = $1`, [camp.id]);
@@ -222,7 +231,7 @@ registerHandler('campaign.tick', async job => withBiz(job.business_id, async c =
     const active = (await c.query(`select 1 from calls where campaign_id = $1 and status in ('initiated','ringing','in-progress')`, [camp.id])).rowCount;
     if (active) return { reschedule: 20 };
   }
-  const batch = (await c.query(`select r.contact_id from campaign_recipients r where r.campaign_id = $1 and r.status = 'pending' order by r.updated_at, r.contact_id limit $2`, [camp.id, channel === 'voice' ? 1 : 25])).rows;
+  const batch = (await c.query(`select r.contact_id from campaign_recipients r where r.campaign_id = $1 and r.status = 'pending' order by r.updated_at, r.contact_id limit $2`, [camp.id, channel === 'voice' || channel === 'email' ? 1 : 25])).rows;
   if (!batch.length) {
     await c.query(`update campaigns set status = 'completed', updated_at = now() where id = $1`, [camp.id]);
     return {};
@@ -231,7 +240,7 @@ registerHandler('campaign.tick', async job => withBiz(job.business_id, async c =
     const contact = (await c.query('select * from contacts where id = $1', [contact_id])).rows[0];
     const dnc = contact.phone_e164 ? (await c.query('select 1 from dnc_numbers where phone_e164 = $1', [contact.phone_e164])).rowCount > 0 : false;
     const chk = checkContactAllowed({ contact, dncListed: dnc, purpose: 'marketing', channel, hours: s.campaignHours, aiVoice: channel === 'voice' });
-    if (!contact.phone_e164) chk.allowed = false, chk.reasons.push('No phone number');
+    if (channel !== 'email' && !contact.phone_e164) chk.allowed = false, chk.reasons.push('No phone number');
     if (!chk.allowed) {
       const outsideHoursOnly = chk.reasons.every(r => /Outside|timezone unknown/.test(r));
       await c.query(`update campaign_recipients set status = $3, skip_reason = $4, updated_at = now() where campaign_id = $1 and contact_id = $2`,
@@ -250,13 +259,14 @@ registerHandler('campaign.tick', async job => withBiz(job.business_id, async c =
         await c.query(`update campaign_recipients set status = 'queued', skip_reason = null, updated_at = now() where campaign_id = $1 and contact_id = $2`, [camp.id, contact_id]);
         continue;
       }
-      const conv = await upsertConversation(c, ctx, { contactId: contact_id, channel, thread: contact.phone_e164 });
+      const conv = await upsertConversation(c, ctx, { contactId: contact_id, channel, thread: channel === 'email' ? contact.email.toLowerCase() : contact.phone_e164 });
       const template = channel === 'whatsapp' ? { contentSid: camp.content.template_sid, variables: camp.content.template_variables || undefined } : null;
-      const msg = await queueOutbound(c, ctx, { conversation: conv, body: camp.content.text, authorType: 'system', purpose: 'marketing', key: `camp:${camp.id}:${contact_id}`, template });
+      const { fillTemplate } = await import('./intro.js');
+      const msg = await queueOutbound(c, ctx, { conversation: conv, body: channel === 'email' ? fillTemplate(camp.content.text, contact) : camp.content.text, subject: channel === 'email' ? fillTemplate(camp.content.subject, contact) : null, authorType: 'system', purpose: 'marketing', key: `camp:${camp.id}:${contact_id}`, template });
       await c.query(`update campaign_recipients set status = $3, skip_reason = $4, updated_at = now() where campaign_id = $1 and contact_id = $2`,
         [camp.id, contact_id, msg.status === 'blocked' ? 'skipped' : 'queued', msg.status === 'blocked' ? msg.status_detail : null]);
     }
   }
   // recipients only blocked by local hours stay pending; if everyone left is in that state, wait
-  return { reschedule: channel === 'voice' ? 20 : 30 };
+  return { reschedule: channel === 'voice' ? 20 : channel === 'email' ? s.email.secondsBetween : 30 };
 }));

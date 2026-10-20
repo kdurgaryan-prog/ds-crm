@@ -36,6 +36,11 @@ export const DEFAULT_SETTINGS = {
     autoTextWebLeads: true,          // website requests with the SMS checkbox get the intro text right away
     helpText: 'DS Systems: custom uniforms and workwear. Call (747) 588-7117 or visit dssuniforms.com. Reply STOP to opt out.',
   },
+  email: {
+    dailyLimit: 150,        // Gmail allows ~500/day; staying well under keeps the mailbox out of spam lists
+    secondsBetween: 45,     // pacing between marketing emails
+    signature: 'DS Systems LLC · custom uniforms & workwear · (747) 588-7117 · https://dssuniforms.com',
+  },
   phoneText: {
     // Texts a person sends one by one from their own phone ("Text from my phone" list). {first_name} and {company} are filled in.
     template: "Hi {first_name}, this is DS Systems in Los Angeles. We make custom uniforms and workwear with your logo (printing or embroidery) for {company}. Free quote: https://dssuniforms.com/pages/get-a-quote or call (747) 588-7117. Reply STOP and we won't text again.",

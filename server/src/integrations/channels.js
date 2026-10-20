@@ -13,7 +13,9 @@ export const CHANNELS = {
   website_forms: { label: 'Website quote & contact forms', secrets: [], config: [] },
   ai: { label: 'AI (Claude)', secrets: [], config: [] },
   shopify: { label: 'Shopify store', secrets: ['adminToken', 'webhookSecret'], config: ['shopDomain'] },
+  email: { label: 'Email (Gmail or any mailbox)', secrets: ['password'], config: ['address', 'fromName', 'smtpHost', 'smtpPort', 'imapHost'] },
 };
+export const EMAIL_DEFAULTS = { smtpHost: 'smtp.gmail.com', smtpPort: '465', imapHost: 'imap.gmail.com' };
 
 export const GRAPH = `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || 'v23.0'}`;
 
@@ -57,7 +59,7 @@ export async function setChannelStatus(c, channel, status, error = null) {
 export async function verifyChannel(c, channel, { fetchImpl = fetch } = {}) {
   const ch = await getChannel(c, channel);
   const need = (CHANNELS[channel]?.secrets || []).filter(k => !ch.secrets[k]);
-  const needCfg = (CHANNELS[channel]?.config || []).filter(k => !ch.config?.[k] && !(channel === 'sms' && k === 'messagingServiceSid') && !(channel === 'voice' && k === 'twimlAppSid'));
+  const needCfg = (CHANNELS[channel]?.config || []).filter(k => !ch.config?.[k] && !(channel === 'sms' && k === 'messagingServiceSid') && !(channel === 'voice' && k === 'twimlAppSid') && !(channel === 'email' && k !== 'address'));
   if (channel === 'ai') {
     if (!config.anthropicApiKey) { await setChannelStatus(c, 'ai', 'needs_setup', 'ANTHROPIC_API_KEY is not set on the server'); return 'needs_setup'; }
   } else if (channel === 'webchat' || channel === 'website_forms') {
@@ -74,6 +76,9 @@ export async function verifyChannel(c, channel, { fetchImpl = fetch } = {}) {
       if (!r.ok) throw new Error(`Twilio rejected the credentials (HTTP ${r.status})`);
       const acct = await r.json();
       if (acct.status !== 'active') throw new Error(`Twilio account is ${acct.status}`);
+    } else if (channel === 'email') {
+      const { verifyMailbox } = await import('./email.js');
+      await verifyMailbox(ch);
     } else if (channel === 'messenger' || channel === 'instagram') {
       const id = channel === 'messenger' ? ch.config.pageId : ch.config.igAccountId;
       const r = await fetchImpl(`${GRAPH}/${id}?fields=id,name${channel === 'instagram' ? ',username' : ''}&access_token=${encodeURIComponent(ch.secrets.pageAccessToken)}`);

@@ -69,6 +69,7 @@ r.get('/:id', requirePerm('inbox.read'), async (req, res) => {
 // Reply on the same channel (files allowed). A staff reply pauses Natalie on this conversation.
 r.post('/:id/reply', requirePerm('inbox.reply'), upload.array('files', 5), async (req, res) => {
   const body = String(req.body.body || '').slice(0, 4000);
+  const subject = String(req.body.subject || '').trim().slice(0, 200) || null;
   const key = req.get('idempotency-key') || req.body.idempotencyKey || null;
   const files = req.files || [];
   for (const f of files) if (!isAllowedMime(f.mimetype)) throw badRequest(`"${f.originalname}" cannot be sent.`, { hint: 'Images and PDFs work on most channels.' });
@@ -84,7 +85,7 @@ r.post('/:id/reply', requirePerm('inbox.reply'), upload.array('files', 5), async
     }
     if (cv.ai_enabled) await c.query(`update conversations set ai_enabled = false, ai_paused_reason = 'Staff replied' where id = $1`, [cv.id]);
     if (!cv.assignee_user_id) await c.query(`update conversations set assignee_user_id = $2 where id = $1`, [cv.id, req.ctx.userId]);
-    return queueOutbound(c, req.ctx, { conversation: { ...cv }, body, media, authorType: 'user', purpose: 'conversational', key: key ? `ui:${key}` : null });
+    return queueOutbound(c, req.ctx, { conversation: { ...cv }, body, media, authorType: 'user', purpose: 'conversational', key: key ? `ui:${key}` : null, subject });
   });
   if (msg.status === 'blocked') return res.status(422).json({ error: `Not sent: ${msg.status_detail}`, code: 'blocked', message: msg, hint: 'Nothing was delivered. Check the customer\'s permissions or use another channel.' });
   res.status(201).json(msg);
@@ -92,9 +93,13 @@ r.post('/:id/reply', requirePerm('inbox.reply'), upload.array('files', 5), async
 
 // Start a new thread with a customer (e.g., SMS to a website-form lead)
 r.post('/start', requirePerm('inbox.reply'), async (req, res) => {
-  const { contactId, channel } = parse(z.object({ contactId: z.string().uuid(), channel: z.enum(['sms', 'whatsapp']) }), req.body);
+  const { contactId, channel } = parse(z.object({ contactId: z.string().uuid(), channel: z.enum(['sms', 'whatsapp', 'email']) }), req.body);
   const cv = await withBiz(req.ctx.businessId, async c => {
     const ct = await getContact(c, contactId);
+    if (channel === 'email') {
+      if (!ct.email) throw badRequest('This customer has no email address.');
+      return upsertConversation(c, req.ctx, { contactId: ct.id, channel, thread: ct.email.toLowerCase() });
+    }
     if (!ct.phone_e164) throw badRequest('This customer has no phone number.');
     return upsertConversation(c, req.ctx, { contactId: ct.id, channel, thread: ct.phone_e164 });
   });

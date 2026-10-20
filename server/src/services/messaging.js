@@ -28,7 +28,7 @@ async function isDncListed(c, phone) {
  * Inbound message from any channel. Idempotent on provider message id.
  * @returns {{message, conversation, contact, duplicate?:boolean, keyword?:string}}
  */
-export async function handleInbound(c, ctx, { channel, thread, phone = null, name = null, body = '', media = [], providerId = null, source = null }) {
+export async function handleInbound(c, ctx, { channel, thread, phone = null, name = null, body = '', media = [], providerId = null, source = null, extra = {} }) {
   if (providerId) {
     const dup = (await c.query('select * from messages where channel = $1 and provider_message_id = $2', [channel, providerId])).rows[0];
     if (dup) return { duplicate: true, message: dup };
@@ -36,16 +36,26 @@ export async function handleInbound(c, ctx, { channel, thread, phone = null, nam
   const { contact } = await resolveInboundContact(c, ctx, { channel, address: thread, phone, name, source });
   const conv = await upsertConversation(c, ctx, { contactId: contact.id, channel, thread });
   const msg = (await c.query(
-    `insert into messages (business_id, conversation_id, contact_id, direction, channel, body, media, author_type, status, provider_message_id)
-     values ($1,$2,$3,'in',$4,$5,$6,'customer','received',$7)
+    `insert into messages (business_id, conversation_id, contact_id, direction, channel, body, media, author_type, status, provider_message_id, subject, in_reply_to)
+     values ($1,$2,$3,'in',$4,$5,$6,'customer','received',$7,$8,$9)
      on conflict do nothing returning *`,
-    [ctx.businessId, conv.id, contact.id, channel, body, JSON.stringify(media), providerId])).rows[0];
+    [ctx.businessId, conv.id, contact.id, channel, body, JSON.stringify(media), providerId, extra.subject || null, extra.inReplyTo || null])).rows[0];
   if (!msg) return { duplicate: true };
   await c.query(`update conversations set last_message_at = now(), last_inbound_at = now(), unread = unread + 1, needs_reply = true,
                   status = case when status = 'done' then 'open' else status end where id = $1`, [conv.id]);
   if (contact.status === 'Contacted' || contact.status === 'Waiting') { /* keep status; staff decides */ }
   await activity(c, ctx, contact.id, 'message', `${labelFor(channel)} from customer: ${trim(body || (media.length ? '[attachment]' : ''), 120)}`, { refId: msg.id, data: { channel, direction: 'in' } });
 
+  if (channel === 'email') {
+    // Email is answered by people, not Natalie; an "unsubscribe" in the text stops marketing email
+    await c.query(`update conversations set ai_enabled = false, ai_paused_reason = 'Email is answered by staff' where id = $1 and ai_enabled`, [conv.id]);
+    if (/\bunsubscribe\b|\bremove me\b|\bstop emailing\b/i.test(body || '')) {
+      await c.query(`update contacts set email_opted_out_at = now() where id = $1 and email_opted_out_at is null`, [contact.id]);
+      await c.query(`update campaign_recipients r set status = 'skipped', skip_reason = 'Unsubscribed', updated_at = now() from campaigns k where k.id = r.campaign_id and k.kind = 'email_blast' and r.contact_id = $1 and r.status in ('pending','queued')`, [contact.id]);
+      await activity(c, ctx, contact.id, 'status', 'Asked to stop emails (replied). Marketing email stopped.');
+    }
+    return { message: msg, conversation: conv, contact, keyword: null };
+  }
   const keyword = ['sms', 'whatsapp'].includes(channel) ? classifyKeyword(body) : (classifyKeyword(body) === 'opt_out' ? 'opt_out' : null);
   if (keyword === 'opt_out') {
     // revoking consent by any reasonable means: stop marketing texts and marketing calls
@@ -96,8 +106,15 @@ export async function handleInbound(c, ctx, { channel, thread, phone = null, nam
  * Queue an outbound message. Compliance is checked here; a blocked message is stored as "blocked" with the reason
  * (never shown as sent). The same idempotency key never creates a second message.
  */
-export async function queueOutbound(c, ctx, { conversation, body, media = [], authorType = 'user', purpose = 'conversational', key = null, template = null, bypassOptOut = false, delayMs = 0 }) {
+export async function queueOutbound(c, ctx, { conversation, body, media = [], authorType = 'user', purpose = 'conversational', key = null, template = null, bypassOptOut = false, delayMs = 0, subject = null }) {
   if (!body?.trim() && !media.length && !template) throw badRequest('Write a message or attach a file.');
+  let inReplyTo = null;
+  if (conversation.channel === 'email') {
+    const last = (await c.query(`select provider_message_id, subject from messages where conversation_id = $1 and provider_message_id is not null order by created_at desc limit 1`, [conversation.id])).rows[0];
+    inReplyTo = last?.provider_message_id || null;
+    if (!subject) subject = last?.subject ? (/^re:/i.test(last.subject) ? last.subject : `Re: ${last.subject}`) : null;
+    if (!subject) throw badRequest('Give the email a subject.');
+  }
   const contact = await getContact(c, conversation.contact_id);
   const s = await getSettings(c, ctx.businessId);
   const idem = key || `msg:${crypto.randomUUID()}`;
@@ -116,10 +133,10 @@ export async function queueOutbound(c, ctx, { conversation, body, media = [], au
     else tag = w.tag || null;
   }
   const msg = (await c.query(
-    `insert into messages (business_id, conversation_id, contact_id, direction, channel, body, media, author_type, author_user_id, status, status_detail, idempotency_key, purpose)
-     values ($1,$2,$3,'out',$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`,
+    `insert into messages (business_id, conversation_id, contact_id, direction, channel, body, media, author_type, author_user_id, status, status_detail, idempotency_key, purpose, subject, in_reply_to)
+     values ($1,$2,$3,'out',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) returning *`,
     [ctx.businessId, conversation.id, contact.id, conversation.channel, body || null, JSON.stringify(media), authorType, authorType === 'user' ? ctx.userId : null,
-      blocked ? 'blocked' : 'queued', blocked, idem, purpose])).rows[0];
+      blocked ? 'blocked' : 'queued', blocked, idem, purpose, subject, inReplyTo])).rows[0];
   if (!blocked) {
     await enqueue(c, ctx.businessId, 'message.send', { messageId: msg.id, tag, template }, { key: `send:${msg.id}`, maxAttempts: 5, runAt: delayMs ? new Date(Date.now() + delayMs) : null });
     await c.query(`update conversations set last_message_at = now(), needs_reply = false, unread = 0 where id = $1`, [conversation.id]);
@@ -167,7 +184,14 @@ registerHandler('message.send', async job => {
   let r; let error = null;
   try {
     const media = (m.media || []).map(x => ({ ...x, url: x.url || signedMediaUrl(job.business_id, x.fileId) }));
-    r = await withBiz(job.business_id, c => deliver(c, { channel: m.media?.length && m.channel === 'sms' ? 'mms' : m.channel, to, body: m.body, media, tag: job.payload.tag, template: job.payload.template }));
+    r = await withBiz(job.business_id, async c => {
+      if (m.channel === 'email') {
+        const { sendEmail } = await import('../integrations/email.js');
+        const s = await getSettings(c, job.business_id);
+        return sendEmail(c, { to, subject: m.subject, body: m.body, purpose: m.purpose, inReplyTo: m.in_reply_to, businessId: job.business_id, contactId: m.contact_id, signature: s.email.signature });
+      }
+      return deliver(c, { channel: m.media?.length && m.channel === 'sms' ? 'mms' : m.channel, to, body: m.body, media, tag: job.payload.tag, template: job.payload.template });
+    });
   } catch (e) { error = e; }
   // Step 3: record the outcome. If the provider accepted it, it is never re-queued, even if recording fails.
   if (!error) {
@@ -194,7 +218,7 @@ registerHandler('message.send', async job => {
 });
 
 export function labelFor(ch) {
-  return { sms: 'SMS', mms: 'MMS', whatsapp: 'WhatsApp', messenger: 'Messenger', instagram: 'Instagram', webchat: 'Website chat', website_forms: 'Website form', voice: 'Call' }[ch] || ch;
+  return { sms: 'SMS', mms: 'MMS', whatsapp: 'WhatsApp', messenger: 'Messenger', instagram: 'Instagram', webchat: 'Website chat', website_forms: 'Website form', voice: 'Call', email: 'Email' }[ch] || ch;
 }
 export function trim(s, n) { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
 export { PermanentError };

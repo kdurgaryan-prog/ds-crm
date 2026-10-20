@@ -109,7 +109,7 @@ r.get('/', requirePerm('contacts.read'), async (req, res) => {
   const out = await withBiz(req.ctx.businessId, async c => {
     const total = (await c.query(`select count(*)::int n from contacts c where ${where}`, vals)).rows[0].n;
     const rows = (await c.query(
-      `select c.id, c.lead_no, c.name, c.company, c.phone_e164, c.email, c.socials, c.source, c.status, c.product_type, c.quantity, c.decoration,
+      `select c.id, c.lead_no, c.name, c.company, c.phone_e164, c.email, c.email_opted_out_at, c.socials, c.source, c.status, c.product_type, c.quantity, c.decoration,
               c.colors, c.sizes, c.deadline, c.industry, c.title, c.address, c.city, c.county, c.zip, c.license_no, c.business_type, c.industry_type, c.custom, c.created_at, c.last_activity_at, c.dnc, c.opted_out_at, c.sms_marketing,
               c.owner_user_id, u.name owner_name,
               (select count(*)::int from phone_text_items i where i.contact_id = c.id and i.status = 'sent') texted_count,

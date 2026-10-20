@@ -28,7 +28,7 @@ export function daysUntil(dateStr) {
   const d = new Date(dateStr + 'T12:00:00'); const t = new Date(); t.setHours(12, 0, 0, 0);
   return Math.round((d - t) / 86400000);
 }
-export const CHANNEL = { sms: 'SMS', mms: 'MMS', whatsapp: 'WhatsApp', messenger: 'Messenger', instagram: 'Instagram', webchat: 'Website chat', website_forms: 'Website form', voice: 'Phone' };
+export const CHANNEL = { sms: 'SMS', mms: 'MMS', whatsapp: 'WhatsApp', messenger: 'Messenger', instagram: 'Instagram', webchat: 'Website chat', website_forms: 'Website form', voice: 'Phone', email: 'Email' };
 export const leadName = c => c ? (c.name || c.company || `Lead ${c.lead_no}`) : '';
 export const STATUS_TONE = { New: 'blue', Contacted: '', Waiting: 'amber', Qualified: 'blue', 'Quote Sent': 'blue', Won: 'green', Lost: 'red' };
 export const ORDER_TONE = { New: 'blue', 'Awaiting Artwork': 'amber', 'Awaiting Approval': 'amber', 'Awaiting Payment': 'amber', 'In Production': 'blue', 'Quality Check': 'blue', Ready: 'green', Delivered: 'green', Canceled: 'red' };

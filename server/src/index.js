@@ -23,7 +23,7 @@ await migrate({ log: m => console.log('[migrate]', m) });
 const app = createApp();
 const server = http.createServer(app);
 attachRelay(server);
-if (config.runWorkerInProcess) startWorker();
+if (config.runWorkerInProcess) { const { ensureEmailPolling } = await import('./integrations/email.js'); await ensureEmailPolling().catch(e => console.error('[email] polling setup', e.message)); startWorker(); }
 server.listen(config.port, () => console.log(`[ds-crm] ${config.appEnv} on :${config.port} (delivery: ${config.deliveryMode === 'live' && config.appEnv === 'production' ? 'live' : 'sandbox'})`));
 
 const shutdown = () => { server.close(() => pool.end().finally(() => process.exit(0))); setTimeout(() => process.exit(0), 8000).unref(); };

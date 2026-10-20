@@ -200,4 +200,21 @@ router.post('/:key/shopify-quote', express.text({ type: () => true, limit: '64kb
   res.status(204).end(); // the browser sends this in the background; nothing is shown to the visitor
 });
 
+// One-click unsubscribe from marketing email (link in every marketing email; no login)
+async function unsubscribe(req, res) {
+  const { verifyUnsubscribe } = await import('../integrations/email.js');
+  const { biz, contact, sig } = req.params;
+  const ok = /^[0-9a-f-]{36}$/.test(biz) && /^[0-9a-f-]{36}$/.test(contact) && verifyUnsubscribe(biz, contact, sig);
+  if (ok) await withBiz(biz, async c => {
+    const n = (await c.query(`update contacts set email_opted_out_at = coalesce(email_opted_out_at, now()) where id = $1 returning id`, [contact])).rowCount;
+    if (n) {
+      await c.query(`update campaign_recipients r set status = 'skipped', skip_reason = 'Unsubscribed', updated_at = now() from campaigns k where k.id = r.campaign_id and k.kind = 'email_blast' and r.contact_id = $1 and r.status in ('pending','queued')`, [contact]);
+      await activity(c, { businessId: biz }, contact, 'status', 'Unsubscribed from email (link in an email)');
+    }
+  }).catch(() => {});
+  res.type('html').send(`<!doctype html><meta name=viewport content="width=device-width"><body style="font:16px/1.5 -apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:520px;margin:60px auto;padding:0 16px;color:#222"><h2>${ok ? "You're unsubscribed" : 'This link is not valid'}</h2><p>${ok ? "You won't get marketing emails from DS Systems any more." : 'Reply to the email you received and ask to be removed.'}</p></body>`);
+}
+router.get('/unsubscribe/:biz/:contact/:sig', unsubscribe);
+router.post('/unsubscribe/:biz/:contact/:sig', express.urlencoded({ extended: false }), unsubscribe);   // RFC 8058 one-click (mail apps POST)
+
 export default router;

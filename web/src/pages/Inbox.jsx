@@ -55,6 +55,7 @@ function Thread({ id, onChange }) {
   const users = useLoad(() => get('/contacts/facets'), []);
   const [text, setText] = useState('');
   const [files, setFiles] = useState([]);
+  const [subject, setSubject] = useState('');
   const [suggestion, setSuggestion] = useState(null);
   const [run, busy] = useAction();
   const end = useRef(null);
@@ -68,7 +69,7 @@ function Thread({ id, onChange }) {
   const { conversation: cv, contact: c, messages, replyWindow } = data;
   const update = (body, msg) => run(() => patch(`/inbox/${cv.id}`, body), msg).then(() => { reload(); onChange(); });
   const send = async () => {
-    const fd = new FormData(); fd.append('body', text); for (const f of files) fd.append('files', f);
+    const fd = new FormData(); fd.append('body', text); if (subject) fd.append('subject', subject); for (const f of files) fd.append('files', f);
     const key = `${cv.id}-${Date.now()}`;
     try {
       const m = await api(`/inbox/${cv.id}/reply`, { method: 'POST', form: fd, headers: { 'idempotency-key': key } });
@@ -83,7 +84,7 @@ function Thread({ id, onChange }) {
       <div className="thread-head">
         <button className="btn ghost show-sm" onClick={() => nav('/inbox')} aria-label="Back to list"><Icon name="back" /></button>
         <div style={{ minWidth: 0 }}><Link to={`/customers/${c.id}`}><b>{leadName(c)}</b></Link> <span className="muted">Lead {c.lead_no}{c.company && c.name ? ` — ${c.company}` : ''}</span><br />
-          <span className="small muted">{CHANNEL[cv.channel]}{c.phone_e164 ? ` · ${phone(c.phone_e164)}` : ''}</span></div>
+          <span className="small muted">{CHANNEL[cv.channel]}{cv.channel === 'email' ? ` · ${cv.external_thread_id}` : c.phone_e164 ? ` · ${phone(c.phone_e164)}` : ''}</span></div>
         <span className="spacer" />
         {can('inbox.reply') && !formOnly && <Switch checked={cv.ai_enabled} onChange={v => update({ ai_enabled: v }, v ? `${me.agents.natalie} will answer this conversation` : `${me.agents.natalie} paused for this conversation`)} label={`${me.agents.natalie} answers`} />}
         {can('inbox.reply') && <select className="in" style={{ width: 'auto' }} value={cv.assignee_user_id || ''} onChange={e => update({ assignee_user_id: e.target.value || null }, 'Conversation transferred')} aria-label="Assign to">
@@ -97,7 +98,8 @@ function Thread({ id, onChange }) {
           const who = m.direction === 'in' ? null : m.author_type === 'ai' ? me.agents.natalie + ' (AI)' : m.author_type === 'system' ? 'Automatic' : m.author_name || 'Staff';
           return (
             <div key={m.id} className={`msg ${m.direction === 'out' ? 'out' : ''}${m.author_type === 'ai' ? ' ai' : ''}${['failed', 'blocked'].includes(m.status) ? ' bad' : ''}`}>
-              {m.body}
+              {m.subject && cv.channel === 'email' && <div style={{ fontWeight: 650, marginBottom: 4 }}>{m.subject}</div>}
+              <div style={{ whiteSpace: 'pre-wrap' }}>{m.body}</div>
               {(m.media || []).map((x, i) => x.fileId ? <div key={i}><a href={`/api/files/${x.fileId}`} target="_blank" rel="noreferrer">{(x.mime || '').startsWith('image/') ? <img src={`/api/files/${x.fileId}`} alt={x.filename || 'attachment'} style={{ maxWidth: 220, borderRadius: 8, marginTop: 6 }} /> : (x.filename || 'Attachment')}</a></div> : <div key={i} className="small muted">[attachment]</div>)}
               <div className="meta">{who && <span>{who}</span>}<span>{dateTime(m.created_at)}</span>{m.direction === 'out' && <Pill tone={tone}>{label}</Pill>}</div>
               {m.status_detail && ['failed', 'blocked', 'unknown', 'queued'].includes(m.status) && <div className="small" style={{ color: m.status === 'queued' ? 'var(--ink-3)' : 'var(--red)', marginTop: 4 }}>{m.status_detail}</div>}
@@ -116,7 +118,8 @@ function Thread({ id, onChange }) {
           {replyWindow.staffOnly && <div className="notice small">More than 24 hours since the customer wrote: only staff replies are allowed (sent as a human-agent reply).</div>}
           {suggestion && <div className="suggest"><div className="small muted">Suggested by {me.agents.natalie} — edit before sending</div><div style={{ whiteSpace: 'pre-wrap' }}>{suggestion}</div>
             <div className="row" style={{ marginTop: 6 }}><button className="btn small" onClick={() => { setText(suggestion); setSuggestion(null); }}>Use this</button><button className="btn small ghost" onClick={() => setSuggestion(null)}>Dismiss</button></div></div>}
-          <textarea className="in" rows={3} value={text} onChange={e => setText(e.target.value)} placeholder={`Reply by ${CHANNEL[cv.channel]}…`} aria-label="Reply"
+          {cv.channel === 'email' && !messages.some(m => m.subject) && <input className="in" style={{ marginBottom: 6 }} value={subject} onChange={e => setSubject(e.target.value)} placeholder="Subject" aria-label="Subject" maxLength={200} />}
+          <textarea className="in" rows={cv.channel === 'email' ? 7 : 3} value={text} onChange={e => setText(e.target.value)} placeholder={`Reply by ${CHANNEL[cv.channel]}…`} aria-label="Reply"
             onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send(); }} />
           {files.length > 0 && <div className="row small">{files.map((f, i) => <Pill key={i}>{f.name} <button className="btn ghost small" style={{ minHeight: 0, padding: 0 }} onClick={() => setFiles(files.filter((_, j) => j !== i))} aria-label={`Remove ${f.name}`}>×</button></Pill>)}</div>}
           <div className="row">

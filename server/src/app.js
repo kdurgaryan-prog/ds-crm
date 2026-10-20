@@ -27,6 +27,7 @@ import { widgetScript } from './widget.js';
 import './agents/natalie.js';
 import './integrations/voice-relay.js';
 import './services/marketing.js';
+import './integrations/email.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const webDist = path.resolve(here, '../../web/dist');

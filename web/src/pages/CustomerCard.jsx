@@ -30,6 +30,7 @@ export default function CustomerCard() {
   if (c.id !== id) { nav(`/customers/${c.id}`, { replace: true }); return null; } // merged record
   const save = p => run(() => patch(`/contacts/${c.id}`, p), 'Saved').then(reload);
   const msgThread = data.conversations.find(x => ['sms', 'whatsapp', 'messenger', 'instagram', 'webchat'].includes(x.channel));
+  const startEmail = async () => { const cv = await run(() => post('/inbox/start', { contactId: c.id, channel: 'email' })); nav(`/inbox/${cv.id}`); };
   const startSms = async () => { const cv = await run(() => post('/inbox/start', { contactId: c.id, channel: 'sms' })); nav(`/inbox/${cv.id}`); };
   const blockedCall = c.dnc || c.dnc_listed;
 
@@ -45,6 +46,7 @@ export default function CustomerCard() {
       <div className="quick" style={{ marginBottom: 16 }}>
         {msgThread ? <Link className="btn primary" to={`/inbox/${msgThread.id}`}><Icon name="send" />Message</Link>
           : c.phone_e164 && can('inbox.reply') && <button className="btn primary" onClick={startSms}><Icon name="send" />Text</button>}
+        {c.email && can('inbox.reply') && <button className="btn" disabled={!!c.email_opted_out_at} title={c.email_opted_out_at ? 'Unsubscribed from email' : ''} onClick={startEmail}>{c.email_opted_out_at ? 'Email: unsubscribed' : 'Email'}</button>}
         {c.phone_e164 && can('calls.make') && <button className="btn" disabled={blockedCall} title={blockedCall ? 'On the Do Not Call list' : ''} onClick={() => sp.open(c.phone_e164)}><Icon name="phone" />{blockedCall ? 'Do not call' : 'Call'}</button>}
         {c.phone_e164 && c.sms_marketing === 'opted_in' && !c.opted_out_at && can('inbox.reply') && <button className="btn" onClick={() => run(() => post(`/contacts/${c.id}/intro-sms`), 'Intro text queued').then(r => nav(`/inbox/${r.conversationId}`)).catch(() => {})}><Icon name="send" />Send intro text</button>}
         {c.phone_e164 && !c.opted_out_at && c.sms_marketing !== 'opted_out' && !blockedCall && can('inbox.reply') && <button className="btn" onClick={() => setPhoneText(true)}><Icon name="send" />Text from my phone</button>}
